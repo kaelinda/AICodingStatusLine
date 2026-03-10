@@ -1,6 +1,6 @@
 # Claude Code Status Line
 
-A custom status line for [Claude Code](https://claude.com/claude-code) that displays model info, token usage, rate limits, and reset times in a single compact line. It runs as an external shell command, so it does not slow down Claude Code or consume any extra tokens.
+A custom status line for [Claude Code](https://claude.com/claude-code) that displays model info, git context, token usage, and rate limits in a single compact line. It runs as an external shell command, so it does not slow down Claude Code or consume any extra tokens.
 
 ## Screenshot
 
@@ -11,14 +11,28 @@ A custom status line for [Claude Code](https://claude.com/claude-code) that disp
 | Segment | Description |
 |---------|-------------|
 | **Model** | Current model name (e.g., Opus 4.6) |
-| **CWD@Branch** | Current folder name, git branch, and file changes (+/-) |
-| **Tokens** | Used / total context window tokens (% used) |
-| **Effort** | Reasoning effort level (low, med, high) |
+| **CWD@Branch** | Current folder name and git branch, with `(+/-)` only when the repo is dirty |
+| **ctx** | Used / total context window tokens plus usage percentage |
+| **eff** | Reasoning effort level (`low`, `med`, `high`) |
 | **5h** | 5-hour rate limit usage percentage and reset time |
 | **7d** | 7-day rate limit usage percentage and reset time |
-| **Extra** | Extra usage credits spent / limit (if enabled) |
+| **extra** | Extra usage credits spent / limit (if enabled) |
 
-Usage percentages are color-coded: green (<50%) → yellow (≥50%) → orange (≥70%) → red (≥90%).
+Usage percentages are color-coded: green (<50%) -> yellow (>=50%) -> orange (>=70%) -> red (>=90%).
+
+## Width Budget
+
+The status line now compacts itself to fit narrow terminals.
+
+- It keeps the core segments visible: model, git context, `ctx`, `eff`, and `5h`
+- It collapses in a fixed order: `extra` -> reset times -> git diff -> `7d` -> truncated git segment
+- You can force a deterministic width budget with `CLAUDE_CODE_STATUSLINE_MAX_WIDTH`
+
+Example:
+
+```bash
+CLAUDE_CODE_STATUSLINE_MAX_WIDTH=100 ~/.claude/statusline.sh
+```
 
 ## Requirements
 
