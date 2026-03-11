@@ -23,7 +23,7 @@
 本仓库 fork 自 [daniel3303/ClaudeCodeStatusLine](https://github.com/daniel3303/ClaudeCodeStatusLine)（原作者 Daniel Oliveira），在保留原始状态栏概念和跨平台脚本的基础上增加了以下特性：
 
 - 自适应宽度裁剪
-- 主题色彩预设（`default` / `forest`）
+- 9 种主题配色预设（含冷色系与暖色系）
 - 多行 `bars` 布局 + 可选进度条字符（`ascii` / `dots` / `squares`）
 - 自定义 7 天重置时间格式
 - 过期 reset 时间自动隐藏
