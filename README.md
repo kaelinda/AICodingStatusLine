@@ -31,6 +31,16 @@ Example:
 CLAUDE_CODE_STATUSLINE_LAYOUT=bars ~/.claude/statusline.sh
 ```
 
+To make the layout persistent in Claude Code, add it under `env` in `~/.claude/settings.json`:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars"
+  }
+}
+```
+
 ## Width Budget
 
 The status line now compacts itself to fit narrow terminals.
@@ -52,10 +62,28 @@ You can also switch ANSI palettes with `CLAUDE_CODE_STATUSLINE_THEME`.
 CLAUDE_CODE_STATUSLINE_THEME=forest ~/.claude/statusline.sh
 ```
 
+Supported theme values:
+
+- `default`
+- `forest`
+
+Unknown theme values fall back to `default`.
+
 You can combine both:
 
 ```bash
 CLAUDE_CODE_STATUSLINE_LAYOUT=bars CLAUDE_CODE_STATUSLINE_THEME=forest ~/.claude/statusline.sh
+```
+
+Persistent example:
+
+```json
+{
+  "env": {
+    "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+    "CLAUDE_CODE_STATUSLINE_THEME": "forest"
+  }
+}
 ```
 
 ## Requirements
