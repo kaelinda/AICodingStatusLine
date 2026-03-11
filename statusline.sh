@@ -11,9 +11,25 @@ fi
 
 theme_name="${CLAUDE_CODE_STATUSLINE_THEME:-default}"
 layout_name="${CLAUDE_CODE_STATUSLINE_LAYOUT:-compact}"
+bar_style_name="${CLAUDE_CODE_STATUSLINE_BAR_STYLE:-ascii}"
 case "$layout_name" in
     bars|compact) ;;
     *) layout_name="compact" ;;
+esac
+case "$bar_style_name" in
+    dots)
+        bar_filled_char='●'
+        bar_empty_char='○'
+        ;;
+    squares)
+        bar_filled_char='■'
+        bar_empty_char='□'
+        ;;
+    *)
+        bar_style_name="ascii"
+        bar_filled_char='='
+        bar_empty_char='-'
+        ;;
 esac
 
 # ANSI palette tuned for dim terminal chrome with one strong accent.
@@ -137,9 +153,14 @@ add_segment() {
 repeat_char() {
     local count="$1"
     local char="$2"
+    local result=""
 
     [ "$count" -le 0 ] && return
-    printf "%${count}s" "" | tr ' ' "$char"
+    while [ "$count" -gt 0 ]; do
+        result="${result}${char}"
+        count=$(( count - 1 ))
+    done
+    printf "%s" "$result"
 }
 
 compose_segments() {
@@ -361,8 +382,8 @@ build_usage_bar_line() {
     local empty_width=$(( bar_width - filled_width ))
 
     local filled_plain empty_plain filled_text pct_color time_color
-    filled_plain=$(repeat_char "$filled_width" "=")
-    empty_plain=$(repeat_char "$empty_width" "-")
+    filled_plain=$(repeat_char "$filled_width" "$bar_filled_char")
+    empty_plain=$(repeat_char "$empty_width" "$bar_empty_char")
 
     if [ "$pct_text" = "--" ]; then
         pct_color="$branch"

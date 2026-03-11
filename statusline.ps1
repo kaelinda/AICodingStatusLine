@@ -10,7 +10,23 @@ $esc = [char]0x1b
 
 $themeName = if ($env:CLAUDE_CODE_STATUSLINE_THEME) { $env:CLAUDE_CODE_STATUSLINE_THEME } else { "default" }
 $layoutName = if ($env:CLAUDE_CODE_STATUSLINE_LAYOUT) { $env:CLAUDE_CODE_STATUSLINE_LAYOUT } else { "compact" }
+$barStyleName = if ($env:CLAUDE_CODE_STATUSLINE_BAR_STYLE) { $env:CLAUDE_CODE_STATUSLINE_BAR_STYLE } else { "ascii" }
 if ($layoutName -notin @("compact", "bars")) { $layoutName = "compact" }
+switch ($barStyleName) {
+    "dots" {
+        $barFilledChar = [string][char]0x25CF
+        $barEmptyChar = [string][char]0x25CB
+    }
+    "squares" {
+        $barFilledChar = [string][char]0x25A0
+        $barEmptyChar = [string][char]0x25A1
+    }
+    default {
+        $barStyleName = "ascii"
+        $barFilledChar = "="
+        $barEmptyChar = "-"
+    }
+}
 
 # ANSI palette tuned for dim terminal chrome with one strong accent.
 switch ($themeName) {
@@ -325,8 +341,8 @@ function Build-UsageBarLine([string]$label, [int]$pctValue, [string]$pctText, [s
     if ($filledWidth -gt $barWidth) { $filledWidth = $barWidth }
     $emptyWidth = $barWidth - $filledWidth
 
-    $filledPlain = Repeat-Char "=" $filledWidth
-    $emptyPlain = Repeat-Char "-" $emptyWidth
+    $filledPlain = Repeat-Char $barFilledChar $filledWidth
+    $emptyPlain = Repeat-Char $barEmptyChar $emptyWidth
 
     if ($pctText -eq "--") {
         $pctColor = $branch

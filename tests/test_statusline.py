@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SHELL_SCRIPT = ROOT / "statusline.sh"
 PS_SCRIPT = ROOT / "statusline.ps1"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
+DOTS_BAR_RE = r"[\u25cf\u25cb]+"
 
 SAMPLE_INPUT = {
     "model": {"display_name": "Opus 4.6"},
@@ -225,6 +226,10 @@ class StatusLineTests(unittest.TestCase):
 
         self.assertEqual(default_output, unknown_output)
 
+    def test_powershell_script_source_is_ascii_only_for_windows_compat(self):
+        script_bytes = PS_SCRIPT.read_bytes()
+        self.assertTrue(all(byte < 128 for byte in script_bytes))
+
     def test_bars_layout_outputs_three_lines_with_usage_bars(self):
         output = self._run_shell(
             budget=120,
@@ -266,6 +271,52 @@ class StatusLineTests(unittest.TestCase):
         self.assertEqual("5h -- [----------] n/a", lines[1])
         self.assertEqual("7d -- [----------] n/a", lines[2])
 
+    def test_bars_layout_dots_style_changes_bar_glyphs(self):
+        output = self._run_shell(
+            budget=120,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                "CLAUDE_CODE_STATUSLINE_BAR_STYLE": "dots",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(3, len(lines))
+        self.assertRegex(lines[1], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
+        self.assertRegex(lines[2], rf"^7d 63% \[{DOTS_BAR_RE}\] Mar 6 8:00$")
+        self.assertIn("●", lines[1])
+        self.assertIn("○", lines[1])
+
+    def test_bars_layout_squares_style_keeps_placeholders(self):
+        output = self._run_shell(
+            budget=120,
+            usage=False,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                "CLAUDE_CODE_STATUSLINE_BAR_STYLE": "squares",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(3, len(lines))
+        self.assertEqual("5h -- [□□□□□□□□□□] n/a", lines[1])
+        self.assertEqual("7d -- [□□□□□□□□□□] n/a", lines[2])
+
+    def test_unknown_bar_style_falls_back_to_ascii(self):
+        default_output = self._run_shell(
+            budget=120,
+            extra_env={"CLAUDE_CODE_STATUSLINE_LAYOUT": "bars"},
+        )
+        unknown_output = self._run_shell(
+            budget=120,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                "CLAUDE_CODE_STATUSLINE_BAR_STYLE": "mystery",
+            },
+        )
+
+        self.assertEqual(default_output, unknown_output)
+
     def test_bars_layout_theme_changes_only_ansi(self):
         default_raw = self._run_shell(
             budget=120,
@@ -301,6 +352,28 @@ class StatusLineTests(unittest.TestCase):
         self.assertEqual(shell_lines[0], pwsh_lines[0])
         self.assertRegex(pwsh_lines[1], r"^5h 83% \[[=\-]+\] 2:00$")
         self.assertRegex(pwsh_lines[2], r"^7d 63% \[[=\-]+\] Mar 6 8:00$")
+
+    def test_powershell_bars_layout_uses_selected_bar_style_when_available(self):
+        shell_output = self._run_shell(
+            budget=120,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                "CLAUDE_CODE_STATUSLINE_BAR_STYLE": "dots",
+            },
+        )
+        pwsh_output = self._run_pwsh(
+            budget=120,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                "CLAUDE_CODE_STATUSLINE_BAR_STYLE": "dots",
+            },
+        )
+
+        shell_lines = shell_output.splitlines()
+        pwsh_lines = pwsh_output.splitlines()
+        self.assertEqual(shell_lines[0], pwsh_lines[0])
+        self.assertRegex(pwsh_lines[1], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
+        self.assertRegex(pwsh_lines[2], rf"^7d 63% \[{DOTS_BAR_RE}\] Mar 6 8:00$")
 
 
 if __name__ == "__main__":

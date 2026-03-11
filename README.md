@@ -11,15 +11,35 @@ This fork keeps the original status line concept and cross-platform shell script
 - adaptive width handling
 - theme presets
 - optional multi-line `bars` layout
+- selectable `bars` glyph presets: `ascii`, `dots`, `squares`
+- PowerShell-safe glyph rendering for `dots` / `squares`
 - updated documentation and screenshots
 
 Planned follow-up work:
 
 - adapt the status line experience for Codex CLI
 
-## Screenshot
+## Current Changes
+
+Current version highlights:
+
+- added `CLAUDE_CODE_STATUSLINE_BAR_STYLE` for `bars` layout
+- supports `ascii`, `dots`, and `squares`
+- unknown style values fall back to `ascii`
+- kept `compact` layout behavior unchanged
+- kept PowerShell compatibility by building non-ASCII bar glyphs from code points instead of source literals
+
+## Screenshots
 
 ![Status Line Screenshot](screenshot.png)
+
+### `dots` style
+
+![Bars Dots Screenshot](screenshot-dots.png)
+
+### `squares` style
+
+![Bars Squares Screenshot](screenshot-squares.png)
 
 ## What it shows
 
@@ -39,6 +59,7 @@ Usage percentages are color-coded: green (<50%) -> yellow (>=50%) -> orange (>=7
 
 - `compact` is the default single-line layout
 - `bars` keeps the overview on the first line and renders `5h` / `7d` as their own progress-bar lines
+- `CLAUDE_CODE_STATUSLINE_BAR_STYLE` changes the bar glyph preset only for `bars` layout
 
 Example:
 
@@ -54,6 +75,20 @@ To make the layout persistent in Claude Code, add it under `env` in `~/.claude/s
     "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars"
   }
 }
+```
+
+Bar style presets:
+
+- `ascii` -> `=` / `-` (default)
+- `dots` -> `●` / `○`
+- `squares` -> `■` / `□`
+
+Unknown values fall back to `ascii`.
+
+Example:
+
+```bash
+CLAUDE_CODE_STATUSLINE_LAYOUT=bars CLAUDE_CODE_STATUSLINE_BAR_STYLE=dots ~/.claude/statusline.sh
 ```
 
 ## Width Budget
@@ -84,10 +119,10 @@ Supported theme values:
 
 Unknown theme values fall back to `default`.
 
-You can combine both:
+You can combine layout, bar style, and theme:
 
 ```bash
-CLAUDE_CODE_STATUSLINE_LAYOUT=bars CLAUDE_CODE_STATUSLINE_THEME=forest ~/.claude/statusline.sh
+CLAUDE_CODE_STATUSLINE_LAYOUT=bars CLAUDE_CODE_STATUSLINE_BAR_STYLE=squares CLAUDE_CODE_STATUSLINE_THEME=forest ~/.claude/statusline.sh
 ```
 
 Persistent example:
@@ -96,6 +131,7 @@ Persistent example:
 {
   "env": {
     "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+    "CLAUDE_CODE_STATUSLINE_BAR_STYLE": "squares",
     "CLAUDE_CODE_STATUSLINE_THEME": "forest"
   }
 }
