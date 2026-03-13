@@ -56,13 +56,13 @@ if [[ -z "$_layout" ]] && [[ -f "$HOME/.codex/config.toml" ]]; then
 fi
 
 if [[ "$_layout" == "bars" ]]; then
-    # Multi-line tmux status: line 0 = overview (default), line 1 = 5h bar, line 2 = 7d bar
-    tmux set-option -t "$session_name" -q status 3
-    tmux set-option -t "$session_name" -q status-left "  #($status_base --line 1)"
-    tmux set-option -t "$session_name" -q status-left-length 160
+    # Multi-line tmux status: line 0 = git, line 1 = overview, line 2 = 5h bar, line 3 = weekly bar
+    tmux set-option -t "$session_name" -q status 4
     tmux set-option -t "$session_name" -q status-right ""
+    tmux set-option -t "$session_name" -q status-format[0] "  #($status_base --line 1)"
     tmux set-option -t "$session_name" -q status-format[1] "  #($status_base --line 2)"
     tmux set-option -t "$session_name" -q status-format[2] "  #($status_base --line 3)"
+    tmux set-option -t "$session_name" -q status-format[3] "  #($status_base --line 4)"
 else
     tmux set-option -t "$session_name" -q status 1
     tmux set-option -t "$session_name" -q status-left "  #($status_base)"

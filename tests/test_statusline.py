@@ -609,6 +609,18 @@ class StatusLineTests(unittest.TestCase):
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
         self.assertFalse((install_home / ".claude" / "statusline.sh").exists())
 
+    def test_install_script_codex_target_installs_four_line_bars_tmux_launcher(self):
+        install_home, _ = self._run_install("--target", "codex")
+        launcher_text = (install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).read_text()
+
+        self.assertIn('tmux set-option -t "$session_name" -q status 4', launcher_text)
+        self.assertIn('tmux set-option -t "$session_name" -q status-left ""', launcher_text)
+        self.assertIn('tmux set-option -t "$session_name" -q status-format[0] "  #($status_base --line 1)"', launcher_text)
+        self.assertIn('tmux set-option -t "$session_name" -q status-format[1] "  #($status_base --line 2)"', launcher_text)
+        self.assertIn('tmux set-option -t "$session_name" -q status-format[2] "  #($status_base --line 3)"', launcher_text)
+        self.assertIn('tmux set-option -t "$session_name" -q status-format[3] "  #($status_base --line 4)"', launcher_text)
+        self.assertNotIn('tmux set-option -t "$session_name" -q status-left "  #($status_base --line 1)"', launcher_text)
+
     def test_install_script_uninstall_removes_tmux_assets(self):
         install_home, _ = self._run_install("--target", "codex")
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())

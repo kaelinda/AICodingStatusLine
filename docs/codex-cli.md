@@ -192,15 +192,16 @@ two_week_time_format = "%m/%d %H:%M"
 
 ## tmux 多行布局（bars）
 
-`bars` 布局在 tmux 中显示为 3 行：
+`bars` 布局在 tmux 中显示为 4 行：
 
 ```
-第 1 行：gpt-5.4 | myapp@main | ctx 89k/258k 34% | eff high
-第 2 行：5h 86% left [████████░░░░░░░░░░░░] 13:30
-第 3 行：weekly 96% left [█░░░░░░░░░░░░░░░░░░░] 3/25 0:00 reset
+第 1 行：myapp@main
+第 2 行：gpt-5.4 | eff high | ctx 89k/258k 34%
+第 3 行：5h 86% left [████████░░░░░░░░░░░░] 13:30 reset
+第 4 行：weekly 96% left [█░░░░░░░░░░░░░░░░░░░] 3/25 0:00 reset
 ```
 
-`codex_tmux.sh` 会自动检测 `bars` 布局并配置 tmux 多行状态栏（`status 3`），无需手动设置。
+`codex_tmux.sh` 会自动检测 `bars` 布局并配置 tmux 四行状态栏（`status 4`），无需手动设置。
 
 布局来源优先级：环境变量 `CODEX_STATUSLINE_LAYOUT` > `config.toml` 的 `[statusline].layout` > 默认 `compact`。
 
@@ -246,7 +247,7 @@ CODEX_STATUSLINE_LAYOUT=bars ./codex_statusline.sh .
 <details>
 <summary><strong>bars 布局只显示一行？</strong></summary>
 
-确认你使用的是 `codex-tmux` 启动器，它会自动配置 tmux 多行状态栏。如果直接在已有 tmux 会话中使用，需要手动设置 `tmux set status 3`。
+确认你使用的是 `codex-tmux` 启动器，它会自动配置 tmux 多行状态栏。如果直接在已有 tmux 会话中使用，需要手动设置 `tmux set status 4`。
 </details>
 
 <details>
