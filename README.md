@@ -64,7 +64,7 @@ cd AICodingStatusLine
 ./install.sh --target codex
 ```
 
-安装后会在 `~/.codex/bin/` 下生成 `codex-tmux`（启动器）和 `codex-statusline`（渲染脚本）。
+安装后会在 `~/.codex/bin/` 下生成 `codex-tmux`（启动器）和 `codex-statusline`（渲染脚本）；bars 布局下会自动配置 tmux 多行状态栏。
 
 **启动：**
 
@@ -73,7 +73,10 @@ codex-tmux               # 需要 ~/.codex/bin 在 PATH 中
 ~/.codex/bin/codex-tmux   # 或使用完整路径
 ```
 
-**显示内容：** 模型名 | Git 分支(+N -N) | ctx 使用率 | 推理努力 | 5h 剩余额度 | weekly 剩余额度
+**显示内容：**
+
+- `compact`：模型名 | 推理努力 | ctx 使用率 | `git 分支(+N -N)` | 5h 剩余额度 | weekly 剩余额度
+- `bars`：第 1 行 `repo@branch`，第 2 行 `model | eff | ctx`，第 3 / 4 行为 `5h` 和 `weekly` 进度条
 
 **配置方式：** 通过 `~/.codex/config.toml` 的 `[statusline]` 段落持久化配置。
 
@@ -90,6 +93,8 @@ gpt-5.4 | myapp@main | ctx 89k/258k 34% | eff high | 5h 86% left 8:00 | weekly 9
 theme = "dracula"
 layout = "bars"
 bar_style = "blocks"
+show_git_line = true
+show_overview_line = true
 ```
 
 > **详细安装步骤、完整配置参考、tmux 多行布局说明请看 → [docs/codex-cli.md](docs/codex-cli.md)**
@@ -117,7 +122,25 @@ bar_style = "blocks"
 | 值 | 说明 | Claude Code 环境变量 | Codex 环境变量 / config.toml |
 |----|------|---------------------|------------------------------|
 | `compact` | **默认**。所有信息压缩在一行 | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `CODEX_STATUSLINE_LAYOUT` / `layout` |
-| `bars` | 概览行 + 5h 进度条行 + 长周期进度条行（Claude 为 `7d`，Codex 为 `weekly`） | 同上 | 同上 |
+| `bars` | Claude 为 3 行；Codex 为 2 到 4 行，可显示 `repo@branch`、概览行和两条进度条 | 同上 | 同上 |
+
+### Codex bars 行显示开关
+
+仅 Codex 的 `bars` 布局支持通过环境变量或 `~/.codex/config.toml` 控制前两行是否显示：
+
+| 配置项 | 默认值 | 说明 |
+|--------|--------|------|
+| `CODEX_STATUSLINE_SHOW_GIT_LINE` / `show_git_line` | `true` | 控制第 1 行 `repo@branch` 是否显示 |
+| `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` / `show_overview_line` | `true` | 控制第 2 行 `model \| eff \| ctx` 是否显示 |
+
+常见组合：
+
+```text
+show_git_line=true,  show_overview_line=true   -> 4 行: git / overview / 5h / weekly
+show_git_line=false, show_overview_line=true   -> 3 行: overview / 5h / weekly
+show_git_line=true,  show_overview_line=false  -> 3 行: git / 5h / weekly
+show_git_line=false, show_overview_line=false  -> 2 行: 5h / weekly
+```
 
 ### 进度条样式（仅 `bars` 布局生效）
 
@@ -188,16 +211,34 @@ bar_style = "blocks"
 
 ## 📐 宽度自适应
 
-状态栏会根据终端宽度自动裁剪，按以下优先级逐步缩减：
+状态栏会根据终端宽度自动裁剪，不同客户端的优先级略有不同：
+
+**Claude Code：**
 
 | 优先级 | 操作 |
 |--------|------|
-| 1 | 移除 `extra` 段落（仅 Claude Code） |
-| 2 | 隐藏长周期时间信息（Claude 的 `7d` / Codex 的 `weekly`） |
+| 1 | 移除 `extra` 段落 |
+| 2 | 隐藏长周期时间信息（`7d`） |
 | 3 | 隐藏 5h 重置时间 |
 | 4 | 隐藏 Git diff 统计 |
-| 5 | 移除整个长周期段落（Claude 的 `7d` / Codex 的 `weekly`） |
+| 5 | 移除整个长周期段落（`7d`） |
 | 6 | 用 `...` 截断 Git 段落 |
+
+**Codex CLI（compact）：**
+
+| 优先级 | 操作 |
+|--------|------|
+| 1 | 隐藏 `weekly` 完整时间，降级为短日期 |
+| 2 | 隐藏 5h 重置时间 |
+| 3 | 隐藏 Git diff 统计 |
+| 4 | 移除整个 `weekly` 段落 |
+| 5 | 用 `...` 截断 Git 分支段落 |
+
+**Codex CLI（bars）：**
+
+- 第 1 行 `repo@branch` 会单独按宽度截断
+- 第 2 行概览会先裁剪
+- `5h` / `weekly` 行会先缩短时间文本，最后才缩小进度条宽度
 
 ---
 
@@ -252,6 +293,29 @@ PowerShell 脚本使用代码点构建 Unicode 字符，不依赖源文件编码
 <summary><strong>如何完全不显示 bars 进度条？</strong></summary>
 
 将布局设为 `compact`（默认值），所有信息会压缩在一行内显示。
+</details>
+
+<details>
+<summary><strong>如何隐藏 Codex bars 的前两行？</strong></summary>
+
+在 `~/.codex/config.toml` 中配置：
+
+```toml
+[statusline]
+layout = "bars"
+show_git_line = false
+show_overview_line = true
+```
+
+也可以临时使用环境变量：
+
+```bash
+CODEX_STATUSLINE_LAYOUT=bars \
+CODEX_STATUSLINE_SHOW_GIT_LINE=false \
+codex-tmux
+```
+
+隐藏后 tmux 状态栏会自动从 4 行缩减为 3 行或 2 行，不会留下空白行。
 </details>
 
 ---
