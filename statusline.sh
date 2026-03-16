@@ -288,6 +288,9 @@ compose_segments() {
     build_model_segment
     add_segment "$SEG_TEXT" "$SEG_PLAIN"
 
+    build_eff_segment
+    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+
     build_git_segment
     if [ -n "$SEG_PLAIN" ]; then
         GIT_SEGMENT_LEN=${#SEG_PLAIN}
@@ -295,9 +298,6 @@ compose_segments() {
     fi
 
     build_ctx_segment
-    add_segment "$SEG_TEXT" "$SEG_PLAIN"
-
-    build_eff_segment
     add_segment "$SEG_TEXT" "$SEG_PLAIN"
 
     if [ "$include_usage_summary" -eq 1 ]; then

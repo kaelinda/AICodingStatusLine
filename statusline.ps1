@@ -434,6 +434,7 @@ function Compose-Output {
     $script:gitSegmentLen = 0
 
     $segments.Add((Build-ModelSegment))
+    $segments.Add((Build-EffSegment))
 
     $gitSegment = Build-GitSegment
     if ($gitSegment) {
@@ -442,7 +443,6 @@ function Compose-Output {
     }
 
     $segments.Add((Build-CtxSegment))
-    $segments.Add((Build-EffSegment))
     if ($script:includeUsageSummary) {
         $segments.Add((Build-FiveHourSegment))
         if ($script:showSevenDay) {
