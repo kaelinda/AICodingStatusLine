@@ -131,6 +131,7 @@ show_overview_line = true
 | `/statusline theme [值]` | 查看/切换主题（9 种，支持模糊匹配） |
 | `/statusline layout [值]` | 查看/切换布局（compact / bars） |
 | `/statusline bar-style [值]` | 查看/切换进度条样式（7 种 + 自定义） |
+| `/statusline pct-mode [值]` | 切换百分比模式（used / left） |
 | `/statusline max-width [值\|auto]` | 设置宽度预算 |
 | `/statusline time-format [值]` | 设置 7d 时间格式（strftime） |
 | `/statusline reset` | 恢复所有配置为默认值 |
@@ -189,6 +190,15 @@ show_git_line=false, show_overview_line=false  -> 2 行: 5h / weekly
 | `custom:X:Y` | 自定义 | 任意 Unicode 字符，如 `custom:▰:▱` |
 
 未知值自动回退到 `ascii`。
+
+### 百分比模式
+
+| 值 | 显示效果 | Claude Code 环境变量 | Codex 环境变量 |
+|----|---------|---------------------|----------------|
+| `used` | **默认**。`5h 8%` / `7d 19%`（已用百分比） | `CLAUDE_CODE_STATUSLINE_PCT_MODE` | `CODEX_STATUSLINE_PCT_MODE` |
+| `left` | `5h 92% left` / `7d 81% left`（剩余百分比） | 同上 | 同上 |
+
+`left` 模式下进度条填充方向同步反转（剩余多则填充多），颜色始终基于使用量判断（使用少=绿色，使用多=红色）。
 
 ### 截图对比
 
