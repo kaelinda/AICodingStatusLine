@@ -11,6 +11,8 @@ $esc = [char]0x1b
 $themeName = if ($env:CLAUDE_CODE_STATUSLINE_THEME) { $env:CLAUDE_CODE_STATUSLINE_THEME } else { "default" }
 $layoutName = if ($env:CLAUDE_CODE_STATUSLINE_LAYOUT) { $env:CLAUDE_CODE_STATUSLINE_LAYOUT } else { "compact" }
 $barStyleName = if ($env:CLAUDE_CODE_STATUSLINE_BAR_STYLE) { $env:CLAUDE_CODE_STATUSLINE_BAR_STYLE } else { "ascii" }
+$pctMode = if ($env:CLAUDE_CODE_STATUSLINE_PCT_MODE) { $env:CLAUDE_CODE_STATUSLINE_PCT_MODE } else { "used" }
+if ($pctMode -notin @("used", "left")) { $pctMode = "used" }
 if ($layoutName -notin @("compact", "bars")) { $layoutName = "compact" }
 switch -Wildcard ($barStyleName) {
     "dots" {
@@ -179,6 +181,16 @@ function Get-UsageColor([int]$pct) {
     if ($pct -ge 70) { return $orange }
     if ($pct -ge 50) { return $yellow }
     return $green
+}
+
+function Get-DisplayPct([int]$usedPct) {
+    if ($script:pctMode -eq "left") { return 100 - $usedPct }
+    return $usedPct
+}
+
+function Get-PctSuffix {
+    if ($script:pctMode -eq "left") { return " left" }
+    return ""
 }
 
 function Get-MaxWidth {
@@ -393,8 +405,10 @@ function Build-FiveHourSegment {
     }
 
     $pctColor = Get-UsageColor $script:fiveHourPct
-    $plain = "5h $($script:fiveHourPct)%"
-    $text = "${dim}5h${reset} ${pctColor}$($script:fiveHourPct)%${reset}"
+    $dispPct = Get-DisplayPct $script:fiveHourPct
+    $suffix = Get-PctSuffix
+    $plain = "5h ${dispPct}%${suffix}"
+    $text = "${dim}5h${reset} ${pctColor}${dispPct}%${suffix}${reset}"
     if ($script:showFiveHourReset -and $script:fiveHourReset) {
         $plain += " $($script:fiveHourReset)"
         $text += " ${dim}$($script:fiveHourReset)${reset}"
@@ -408,8 +422,10 @@ function Build-SevenDaySegment {
     }
 
     $pctColor = Get-UsageColor $script:sevenDayPct
-    $plain = "7d $($script:sevenDayPct)%"
-    $text = "${dim}7d${reset} ${pctColor}$($script:sevenDayPct)%${reset}"
+    $dispPct = Get-DisplayPct $script:sevenDayPct
+    $suffix = Get-PctSuffix
+    $plain = "7d ${dispPct}%${suffix}"
+    $text = "${dim}7d${reset} ${pctColor}${dispPct}%${suffix}${reset}"
     if ($script:showSevenDayReset -and $script:sevenDayReset) {
         $plain += " $($script:sevenDayReset)"
         $text += " ${dim}$($script:sevenDayReset)${reset}"
@@ -497,7 +513,8 @@ function Build-UsageBarLine([string]$label, [int]$pctValue, [string]$pctText, [s
     if ($availableWidth -lt $barWidth) { $barWidth = $availableWidth }
     if ($barWidth -lt $minBarWidth) { $barWidth = $minBarWidth }
 
-    $filledWidth = if ($pctValue -gt 0) { [math]::Floor($pctValue * $barWidth / 100) } else { 0 }
+    $barPct = if ($script:pctMode -eq "left") { 100 - $pctValue } else { $pctValue }
+    $filledWidth = if ($barPct -gt 0) { [math]::Floor($barPct * $barWidth / 100) } else { 0 }
     if ($filledWidth -gt $barWidth) { $filledWidth = $barWidth }
     $emptyWidth = $barWidth - $filledWidth
 
@@ -567,9 +584,12 @@ function Render-BarsOutput {
     Render-CompactOutput $false
     $topLine = $script:outputText
 
+    $suffix = Get-PctSuffix
     if ($script:usageAvailable) {
-        $fiveLine = Build-UsageBarLine "5h" $script:fiveHourPct "$($script:fiveHourPct)%" $script:fiveHourReset $null
-        $sevenLine = Build-UsageBarLine "7d" $script:sevenDayPct "$($script:sevenDayPct)%" $script:sevenDayReset $script:sevenDayDate
+        $fiveDisp = Get-DisplayPct $script:fiveHourPct
+        $sevenDisp = Get-DisplayPct $script:sevenDayPct
+        $fiveLine = Build-UsageBarLine "5h" $script:fiveHourPct "${fiveDisp}%${suffix}" $script:fiveHourReset $null
+        $sevenLine = Build-UsageBarLine "7d" $script:sevenDayPct "${sevenDisp}%${suffix}" $script:sevenDayReset $script:sevenDayDate
     } else {
         $fiveLine = Build-UsageBarLine "5h" 0 "--" "n/a" $null
         $sevenLine = Build-UsageBarLine "7d" 0 "--" "n/a" $null

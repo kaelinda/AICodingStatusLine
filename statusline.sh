@@ -12,6 +12,11 @@ fi
 theme_name="${CLAUDE_CODE_STATUSLINE_THEME:-default}"
 layout_name="${CLAUDE_CODE_STATUSLINE_LAYOUT:-compact}"
 bar_style_name="${CLAUDE_CODE_STATUSLINE_BAR_STYLE:-ascii}"
+pct_mode="${CLAUDE_CODE_STATUSLINE_PCT_MODE:-used}"
+case "$pct_mode" in
+    used|left) ;;
+    *) pct_mode="used" ;;
+esac
 case "$layout_name" in
     bars|compact) ;;
     *) layout_name="compact" ;;
@@ -196,6 +201,21 @@ usage_color() {
         printf "%s" "$yellow"
     else
         printf "%s" "$green"
+    fi
+}
+
+display_pct() {
+    local used_pct=$1
+    if [ "$pct_mode" = "left" ]; then
+        printf "%d" $(( 100 - used_pct ))
+    else
+        printf "%d" "$used_pct"
+    fi
+}
+
+pct_suffix() {
+    if [ "$pct_mode" = "left" ]; then
+        printf " left"
     fi
 }
 
@@ -408,10 +428,12 @@ build_five_hour_segment() {
         return
     fi
 
-    local pct_color
+    local pct_color disp_pct suffix
     pct_color=$(usage_color "$five_hour_pct")
-    SEG_PLAIN="5h ${five_hour_pct}%"
-    SEG_TEXT="${dim}5h${reset} ${pct_color}${five_hour_pct}%${reset}"
+    disp_pct=$(display_pct "$five_hour_pct")
+    suffix=$(pct_suffix)
+    SEG_PLAIN="5h ${disp_pct}%${suffix}"
+    SEG_TEXT="${dim}5h${reset} ${pct_color}${disp_pct}%${suffix}${reset}"
     if [ "$show_five_hour_reset" -eq 1 ] && [ -n "$five_hour_reset" ]; then
         SEG_PLAIN+=" ${five_hour_reset}"
         SEG_TEXT+=" ${dim}${five_hour_reset}${reset}"
@@ -425,10 +447,12 @@ build_seven_day_segment() {
         return
     fi
 
-    local pct_color
+    local pct_color disp_pct suffix
     pct_color=$(usage_color "$seven_day_pct")
-    SEG_PLAIN="7d ${seven_day_pct}%"
-    SEG_TEXT="${dim}7d${reset} ${pct_color}${seven_day_pct}%${reset}"
+    disp_pct=$(display_pct "$seven_day_pct")
+    suffix=$(pct_suffix)
+    SEG_PLAIN="7d ${disp_pct}%${suffix}"
+    SEG_TEXT="${dim}7d${reset} ${pct_color}${disp_pct}%${suffix}${reset}"
     if [ "$show_seven_day_reset" -eq 1 ] && [ -n "$seven_day_reset" ]; then
         SEG_PLAIN+=" ${seven_day_reset}"
         SEG_TEXT+=" ${dim}${seven_day_reset}${reset}"
@@ -489,9 +513,13 @@ build_usage_bar_line() {
         bar_width="$min_bar_width"
     fi
 
+    local bar_pct="$pct_value"
+    if [ "$pct_mode" = "left" ]; then
+        bar_pct=$(( 100 - pct_value ))
+    fi
     local filled_width=0
-    if [ "$pct_value" -gt 0 ]; then
-        filled_width=$(( pct_value * bar_width / 100 ))
+    if [ "$bar_pct" -gt 0 ]; then
+        filled_width=$(( bar_pct * bar_width / 100 ))
     fi
     if [ "$filled_width" -gt "$bar_width" ]; then
         filled_width="$bar_width"
@@ -570,15 +598,19 @@ render_bars_output() {
     render_compact_output 0
     local top_line="$OUTPUT_TEXT"
 
+    local five_disp seven_disp suffix
+    suffix=$(pct_suffix)
     if [ "$usage_available" -eq 1 ]; then
-        build_usage_bar_line "5h" "$five_hour_pct" "${five_hour_pct}%" "$full_five_time" ""
+        five_disp=$(display_pct "$five_hour_pct")
+        build_usage_bar_line "5h" "$five_hour_pct" "${five_disp}%${suffix}" "$full_five_time" ""
     else
         build_usage_bar_line "5h" 0 "--" "n/a" ""
     fi
     local five_line="$LINE_TEXT"
 
     if [ "$usage_available" -eq 1 ]; then
-        build_usage_bar_line "7d" "$seven_day_pct" "${seven_day_pct}%" "$full_seven_time" "$short_seven_time"
+        seven_disp=$(display_pct "$seven_day_pct")
+        build_usage_bar_line "7d" "$seven_day_pct" "${seven_disp}%${suffix}" "$full_seven_time" "$short_seven_time"
     else
         build_usage_bar_line "7d" 0 "--" "n/a" ""
     fi
