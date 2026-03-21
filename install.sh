@@ -5,6 +5,8 @@
 #   --theme <name>    设置主题 (default/forest/dracula/monokai/solarized/ocean/sunset/amber/rose)
 #   --layout <mode>   设置布局 (compact/bars)
 #   --bar-style <s>   设置进度条样式 (ascii/dots/squares)
+#   其他 Claude 高级选项请在 ~/.claude/settings.json 的 env 中设置
+#   推荐使用共享键名: STATUSLINE_MODE / STATUSLINE_SHOW_* / STATUSLINE_THEME
 #   --uninstall       卸载状态栏
 set -euo pipefail
 
@@ -15,6 +17,7 @@ CODEX_BIN_DIR="$CODEX_DIR/bin"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 SOURCE_SCRIPT="$SCRIPT_DIR/statusline.sh"
 TARGET_SCRIPT="$CLAUDE_DIR/statusline.sh"
+CLAUDE_COMMON_TARGET="$CLAUDE_DIR/codex_statusline_common.sh"
 TMUX_LAUNCHER_SOURCE="$SCRIPT_DIR/codex_tmux.sh"
 TMUX_STATUS_SOURCE="$SCRIPT_DIR/codex_tmux_status.sh"
 CODEX_STATUSLINE_SOURCE="$SCRIPT_DIR/codex_statusline.sh"
@@ -57,6 +60,8 @@ while [[ $# -gt 0 ]]; do
             printf "  --theme <name>    主题: default/forest/dracula/monokai/solarized/ocean/sunset/amber/rose\n"
             printf "  --layout <mode>   布局: compact/bars\n"
             printf "  --bar-style <s>   进度条: ascii/dots/squares\n"
+            printf "  提示: 其他 Claude 高级配置请写入 ~/.claude/settings.json 的 env\n"
+            printf "        推荐共享键名: STATUSLINE_MODE / STATUSLINE_SHOW_GIT_LINE / STATUSLINE_SHOW_OVERVIEW_LINE / STATUSLINE_SHOW_HOURLY_BAR / STATUSLINE_SHOW_DAILY_BAR\n"
             printf "  --uninstall       卸载状态栏\n"
             printf "  -h, --help        显示此帮助\n"
             exit 0
@@ -106,6 +111,10 @@ install_claude() {
     info "复制 statusline.sh → $TARGET_SCRIPT"
     cp -f "$SOURCE_SCRIPT" "$TARGET_SCRIPT"
     chmod +x "$TARGET_SCRIPT"
+
+    info "复制共享 helper → $CLAUDE_COMMON_TARGET"
+    cp -f "$CODEX_COMMON_SOURCE" "$CLAUDE_COMMON_TARGET"
+    chmod +x "$CLAUDE_COMMON_TARGET"
     ok "Claude 状态栏脚本已就位"
 
     info "更新 $SETTINGS_FILE"
@@ -119,13 +128,13 @@ install_claude() {
     ' "$SETTINGS_FILE")
 
     if [[ -n "$THEME" ]]; then
-        tmp=$(printf '%s' "$tmp" | jq --arg v "$THEME" '.env.CLAUDE_CODE_STATUSLINE_THEME = $v')
+        tmp=$(printf '%s' "$tmp" | jq --arg v "$THEME" '.env.STATUSLINE_THEME = $v')
     fi
     if [[ -n "$LAYOUT" ]]; then
-        tmp=$(printf '%s' "$tmp" | jq --arg v "$LAYOUT" '.env.CLAUDE_CODE_STATUSLINE_LAYOUT = $v')
+        tmp=$(printf '%s' "$tmp" | jq --arg v "$LAYOUT" '.env.STATUSLINE_MODE = $v')
     fi
     if [[ -n "$BAR_STYLE" ]]; then
-        tmp=$(printf '%s' "$tmp" | jq --arg v "$BAR_STYLE" '.env.CLAUDE_CODE_STATUSLINE_BAR_STYLE = $v')
+        tmp=$(printf '%s' "$tmp" | jq --arg v "$BAR_STYLE" '.env.STATUSLINE_BAR_STYLE = $v')
     fi
 
     printf '%s\n' "$tmp" > "$SETTINGS_FILE"
@@ -167,12 +176,32 @@ do_uninstall() {
         ok "已删除 $TARGET_SCRIPT"
     fi
 
+    if [[ -f "$CLAUDE_COMMON_TARGET" ]]; then
+        rm -f "$CLAUDE_COMMON_TARGET"
+        ok "已删除 $CLAUDE_COMMON_TARGET"
+    fi
+
     if [[ -f "$SETTINGS_FILE" ]] && command -v jq >/dev/null 2>&1; then
         local tmp
         tmp=$(jq 'del(.statusLine)
+            | del(.env.STATUSLINE_THEME)
+            | del(.env.STATUSLINE_MODE)
+            | del(.env.STATUSLINE_BAR_STYLE)
+            | del(.env.STATUSLINE_SHOW_GIT_LINE)
+            | del(.env.STATUSLINE_SHOW_OVERVIEW_LINE)
+            | del(.env.STATUSLINE_SHOW_HOURLY_BAR)
+            | del(.env.STATUSLINE_SHOW_DAILY_BAR)
+            | del(.env.STATUSLINE_MAX_WIDTH)
+            | del(.env.STATUSLINE_DAILY_TIME_FORMAT)
+            | del(.env.STATUSLINE_SEVEN_DAY_TIME_FORMAT)
             | del(.env.CLAUDE_CODE_STATUSLINE_THEME)
             | del(.env.CLAUDE_CODE_STATUSLINE_LAYOUT)
             | del(.env.CLAUDE_CODE_STATUSLINE_BAR_STYLE)
+            | del(.env.CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE)
+            | del(.env.CLAUDE_CODE_STATUSLINE_SHOW_OVERVIEW_LINE)
+            | del(.env.CLAUDE_CODE_STATUSLINE_SHOW_HOURLY_BAR)
+            | del(.env.CLAUDE_CODE_STATUSLINE_SHOW_DAILY_BAR)
+            | del(.env.CLAUDE_CODE_STATUSLINE_MAX_WIDTH)
             | del(.env.CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT)
             | if .env == {} then del(.env) else . end' "$SETTINGS_FILE")
         printf '%s\n' "$tmp" > "$SETTINGS_FILE"
@@ -230,12 +259,13 @@ do_install() {
         printf "  状态栏脚本: ${CYAN}%s${RESET}\n" "$TARGET_SCRIPT"
 
         local cur_theme cur_layout cur_bar
-        cur_theme=$(jq -r '.env.CLAUDE_CODE_STATUSLINE_THEME // "default"' "$SETTINGS_FILE")
-        cur_layout=$(jq -r '.env.CLAUDE_CODE_STATUSLINE_LAYOUT // "compact"' "$SETTINGS_FILE")
-        cur_bar=$(jq -r '.env.CLAUDE_CODE_STATUSLINE_BAR_STYLE // "ascii"' "$SETTINGS_FILE")
+        cur_theme=$(jq -r '.env.STATUSLINE_THEME // .env.CLAUDE_CODE_STATUSLINE_THEME // "default"' "$SETTINGS_FILE")
+        cur_layout=$(jq -r '.env.STATUSLINE_MODE // .env.CLAUDE_CODE_STATUSLINE_LAYOUT // "compact"' "$SETTINGS_FILE")
+        cur_bar=$(jq -r '.env.STATUSLINE_BAR_STYLE // .env.CLAUDE_CODE_STATUSLINE_BAR_STYLE // "ascii"' "$SETTINGS_FILE")
         printf "  主题: ${CYAN}%s${RESET}\n" "$cur_theme"
         printf "  布局: ${CYAN}%s${RESET}\n" "$cur_layout"
         printf "  进度条: ${CYAN}%s${RESET}\n" "$cur_bar"
+        printf "  高级项: 可在 ${CYAN}%s${RESET} 的 env 中继续设置 STATUSLINE_SHOW_GIT_LINE / STATUSLINE_SHOW_OVERVIEW_LINE / STATUSLINE_SHOW_HOURLY_BAR / STATUSLINE_SHOW_DAILY_BAR / STATUSLINE_MAX_WIDTH\n" "$SETTINGS_FILE"
     fi
 
     if [[ "$TARGET" == "codex" || "$TARGET" == "both" ]]; then

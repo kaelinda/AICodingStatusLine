@@ -29,6 +29,7 @@ CODEX_TMUX_LAUNCHER_NAME = "codex-tmux"
 CODEX_TMUX_STATUS_NAME = "codex-tmux-status"
 CODEX_STATUSLINE_NAME = "codex-statusline"
 CODEX_STATUSLINE_COMMON_NAME = "codex-statusline-common.sh"
+CLAUDE_STATUSLINE_COMMON_NAME = "codex_statusline_common.sh"
 
 # Simulated Codex session JSONL token_count event
 CODEX_TOKEN_COUNT_EVENT = {
@@ -194,13 +195,18 @@ class StatusLineTests(unittest.TestCase):
     def _write_usage(self, payload) -> None:
         self.usage_cache.write_text(json.dumps(payload))
 
+    def _write_claude_settings(self, payload) -> None:
+        claude_dir = self.cache_home / ".claude"
+        claude_dir.mkdir(parents=True, exist_ok=True)
+        (claude_dir / "settings.json").write_text(json.dumps(payload))
+
     def _run_shell(self, budget=None, usage=True, cwd=None, raw=False, extra_env=None):
         env = os.environ.copy()
         env["HOME"] = str(self.cache_home)
         env["TZ"] = "UTC"
         env["CLAUDE_CODE_EFFORT_LEVEL"] = "low"
         for key in list(env):
-            if key.startswith("CLAUDE_CODE_STATUSLINE_"):
+            if key.startswith("CLAUDE_CODE_STATUSLINE_") or key.startswith("STATUSLINE_"):
                 del env[key]
         if budget is not None:
             env["CLAUDE_CODE_STATUSLINE_MAX_WIDTH"] = str(budget)
@@ -288,7 +294,7 @@ class StatusLineTests(unittest.TestCase):
         env["TZ"] = "UTC"
         env["CLAUDE_CODE_EFFORT_LEVEL"] = "low"
         for key in list(env):
-            if key.startswith("CLAUDE_CODE_STATUSLINE_"):
+            if key.startswith("CLAUDE_CODE_STATUSLINE_") or key.startswith("STATUSLINE_"):
                 del env[key]
         if budget is not None:
             env["CLAUDE_CODE_STATUSLINE_MAX_WIDTH"] = str(budget)
@@ -418,21 +424,123 @@ class StatusLineTests(unittest.TestCase):
         script_bytes = PS_SCRIPT.read_bytes()
         self.assertTrue(all(byte < 128 for byte in script_bytes))
 
-    def test_bars_layout_outputs_three_lines_with_usage_bars(self):
+    def test_bars_layout_outputs_git_and_overview_lines(self):
         output = self._run_shell(
             budget=120,
             extra_env={"CLAUDE_CODE_STATUSLINE_LAYOUT": "bars"},
         )
         lines = output.splitlines()
 
+        self.assertEqual(4, len(lines))
+        self.assertEqual("clean-repo@codex/feature/for-claude", lines[0])
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[1])
+        self.assertNotIn("5h ", lines[1])
+        self.assertNotIn("7d ", lines[1])
+        self.assertRegex(lines[2], r"^5h 83% \[[=\-]+\] 2:00$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\] {re.escape(DEFAULT_7D_TIME)}$")
+
+    def test_bars_layout_hides_git_line_with_env(self):
+        output = self._run_shell(
+            budget=120,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                "CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE": "false",
+            },
+        )
+        lines = output.splitlines()
+
         self.assertEqual(3, len(lines))
-        self.assertIn("Opus 4.6", lines[0])
-        self.assertIn("ctx 15k/200k 7%", lines[0])
-        self.assertIn("eff low", lines[0])
-        self.assertNotIn("5h ", lines[0])
-        self.assertNotIn("7d ", lines[0])
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[0])
         self.assertRegex(lines[1], r"^5h 83% \[[=\-]+\] 2:00$")
         self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\] {re.escape(DEFAULT_7D_TIME)}$")
+
+    def test_bars_layout_visibility_uses_settings_when_env_missing(self):
+        self._write_claude_settings(
+            {
+                "env": {
+                    "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                    "CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE": "false",
+                    "CLAUDE_CODE_STATUSLINE_BAR_STYLE": "dots",
+                }
+            }
+        )
+
+        output = self._run_shell(budget=120)
+        lines = output.splitlines()
+
+        self.assertEqual(3, len(lines))
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[0])
+        self.assertRegex(lines[1], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
+        self.assertRegex(lines[2], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
+
+    def test_bars_layout_uses_shared_statusline_env_names(self):
+        self._write_claude_settings(
+            {
+                "env": {
+                    "STATUSLINE_MODE": "bars",
+                    "STATUSLINE_SHOW_GIT_LINE": "false",
+                    "STATUSLINE_BAR_STYLE": "dots",
+                }
+            }
+        )
+
+        output = self._run_shell(budget=120)
+        lines = output.splitlines()
+
+        self.assertEqual(3, len(lines))
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[0])
+        self.assertRegex(lines[1], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
+        self.assertRegex(lines[2], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
+
+    def test_bars_layout_visibility_env_overrides_settings(self):
+        self._write_claude_settings(
+            {
+                "env": {
+                    "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                    "CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE": "false",
+                    "CLAUDE_CODE_STATUSLINE_SHOW_OVERVIEW_LINE": "false",
+                }
+            }
+        )
+
+        output = self._run_shell(
+            budget=120,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "bars",
+                "CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE": "true",
+                "CLAUDE_CODE_STATUSLINE_SHOW_OVERVIEW_LINE": "true",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(4, len(lines))
+        self.assertEqual("clean-repo@codex/feature/for-claude", lines[0])
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[1])
+
+    def test_bars_layout_shared_env_overrides_settings(self):
+        self._write_claude_settings(
+            {
+                "env": {
+                    "STATUSLINE_MODE": "compact",
+                    "STATUSLINE_SHOW_GIT_LINE": "false",
+                    "STATUSLINE_SHOW_OVERVIEW_LINE": "false",
+                }
+            }
+        )
+
+        output = self._run_shell(
+            budget=120,
+            extra_env={
+                "STATUSLINE_MODE": "bars",
+                "STATUSLINE_SHOW_GIT_LINE": "true",
+                "STATUSLINE_SHOW_OVERVIEW_LINE": "true",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(4, len(lines))
+        self.assertEqual("clean-repo@codex/feature/for-claude", lines[0])
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[1])
 
     def test_bars_layout_narrow_width_keeps_bar_and_drops_time_first(self):
         output = self._run_shell(
@@ -441,11 +549,82 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertRegex(lines[1], r"^5h 83% \[[=\-]+\]$")
-        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
-        self.assertIn("[", lines[1])
+        self.assertEqual(4, len(lines))
+        self.assertRegex(lines[0], r"^clean-repo@.+$")
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[1])
+        self.assertRegex(lines[2], r"^5h 83% \[[=\-]+\]$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
         self.assertIn("[", lines[2])
+        self.assertIn("[", lines[3])
+
+    def test_bars_layout_git_line_truncates_long_repo_and_branch(self):
+        repo_dir = Path(self.temp_dir.name) / "repo-with-a-very-very-long-name-for-bars"
+        repo_dir.mkdir()
+        subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)
+        (repo_dir / "tracked.txt").write_text("base\n")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, check=True, capture_output=True, text=True)
+        subprocess.run(
+            ["git", "checkout", "-b", "feature/with-an-equally-long-branch-name"],
+            cwd=repo_dir,
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+
+        output = self._run_shell(
+            budget=28,
+            cwd=repo_dir,
+            extra_env={"CLAUDE_CODE_STATUSLINE_LAYOUT": "bars"},
+        )
+        git_line = output.splitlines()[0]
+
+        self.assertLessEqual(len(git_line), 28)
+        self.assertIn("...", git_line)
+
+    def test_bars_layout_hides_hourly_bar_with_shared_toggle(self):
+        output = self._run_shell(
+            budget=120,
+            extra_env={
+                "STATUSLINE_MODE": "bars",
+                "STATUSLINE_SHOW_HOURLY_BAR": "false",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(3, len(lines))
+        self.assertEqual("clean-repo@codex/feature/for-claude", lines[0])
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[1])
+        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\] {re.escape(DEFAULT_7D_TIME)}$")
+
+    def test_bars_layout_hides_daily_bar_with_shared_toggle(self):
+        output = self._run_shell(
+            budget=120,
+            extra_env={
+                "STATUSLINE_MODE": "bars",
+                "STATUSLINE_SHOW_DAILY_BAR": "false",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(3, len(lines))
+        self.assertEqual("clean-repo@codex/feature/for-claude", lines[0])
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[1])
+        self.assertRegex(lines[2], r"^5h 83% \[[=\-]+\] 2:00$")
+
+    def test_bars_layout_hides_bars_when_terminal_is_too_narrow(self):
+        output = self._run_shell(
+            budget=15,
+            extra_env={"STATUSLINE_MODE": "bars"},
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(2, len(lines))
+        self.assertLessEqual(len(lines[0]), 15)
+        self.assertIn("...", lines[0])
+        self.assertEqual("Opus 4.6 | eff low | ctx 15k/200k 7%", lines[1])
 
     def test_custom_seven_day_time_format_applies_in_compact_layout(self):
         output = self._run_shell(
@@ -473,7 +652,7 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\] {re.escape(CUSTOM_7D_TIME)}$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\] {re.escape(CUSTOM_7D_TIME)}$")
 
     def test_bars_layout_narrow_width_uses_short_default_date_for_seven_day(self):
         output = self._run_shell(
@@ -485,7 +664,7 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
 
     def test_bars_layout_without_usage_keeps_placeholders(self):
         output = self._run_shell(
@@ -495,9 +674,9 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertEqual("5h -- [----------] n/a", lines[1])
-        self.assertEqual("7d -- [----------] n/a", lines[2])
+        self.assertEqual(4, len(lines))
+        self.assertEqual("5h -- [----------] n/a", lines[2])
+        self.assertEqual("7d -- [----------] n/a", lines[3])
 
     def test_bars_layout_dots_style_changes_bar_glyphs(self):
         output = self._run_shell(
@@ -509,11 +688,11 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertRegex(lines[1], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
-        self.assertRegex(lines[2], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
-        self.assertIn("●", lines[1])
-        self.assertIn("○", lines[1])
+        self.assertEqual(4, len(lines))
+        self.assertRegex(lines[2], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
+        self.assertRegex(lines[3], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
+        self.assertIn("●", lines[2])
+        self.assertIn("○", lines[2])
 
     def test_bars_layout_squares_style_keeps_placeholders(self):
         output = self._run_shell(
@@ -526,9 +705,9 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertEqual("5h -- [□□□□□□□□□□] n/a", lines[1])
-        self.assertEqual("7d -- [□□□□□□□□□□] n/a", lines[2])
+        self.assertEqual(4, len(lines))
+        self.assertEqual("5h -- [□□□□□□□□□□] n/a", lines[2])
+        self.assertEqual("7d -- [□□□□□□□□□□] n/a", lines[3])
 
     def test_unknown_bar_style_falls_back_to_ascii(self):
         default_output = self._run_shell(
@@ -576,10 +755,23 @@ class StatusLineTests(unittest.TestCase):
 
         shell_lines = shell_output.splitlines()
         pwsh_lines = pwsh_output.splitlines()
-        self.assertEqual(3, len(pwsh_lines))
+        self.assertEqual(4, len(pwsh_lines))
         self.assertEqual(shell_lines[0], pwsh_lines[0])
-        self.assertRegex(pwsh_lines[1], r"^5h 83% \[[=\-]+\] 2:00$")
-        self.assertRegex(pwsh_lines[2], rf"^7d 63% \[[=\-]+\] {re.escape(DEFAULT_7D_TIME)}$")
+        self.assertEqual(shell_lines[1], pwsh_lines[1])
+        self.assertRegex(pwsh_lines[2], r"^5h 83% \[[=\-]+\] 2:00$")
+        self.assertRegex(pwsh_lines[3], rf"^7d 63% \[[=\-]+\] {re.escape(DEFAULT_7D_TIME)}$")
+
+    def test_powershell_bars_layout_uses_shared_statusline_env_names_when_available(self):
+        shell_output = self._run_shell(
+            budget=120,
+            extra_env={"STATUSLINE_MODE": "bars", "STATUSLINE_SHOW_DAILY_BAR": "false"},
+        )
+        pwsh_output = self._run_pwsh(
+            budget=120,
+            extra_env={"STATUSLINE_MODE": "bars", "STATUSLINE_SHOW_DAILY_BAR": "false"},
+        )
+
+        self.assertEqual(shell_output.splitlines(), pwsh_output.splitlines())
 
     def test_powershell_custom_seven_day_time_format_matches_shell(self):
         shell_output = self._run_shell(
@@ -613,8 +805,9 @@ class StatusLineTests(unittest.TestCase):
         shell_lines = shell_output.splitlines()
         pwsh_lines = pwsh_output.splitlines()
         self.assertEqual(shell_lines[0], pwsh_lines[0])
-        self.assertRegex(pwsh_lines[1], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
-        self.assertRegex(pwsh_lines[2], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
+        self.assertEqual(shell_lines[1], pwsh_lines[1])
+        self.assertRegex(pwsh_lines[2], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
+        self.assertRegex(pwsh_lines[3], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
 
 
     def test_past_reset_time_is_hidden(self):
@@ -641,9 +834,9 @@ class StatusLineTests(unittest.TestCase):
             extra_env={"CLAUDE_CODE_STATUSLINE_LAYOUT": "bars"},
         )
         lines = output.splitlines()
-        self.assertEqual(3, len(lines))
-        self.assertRegex(lines[1], r"^5h 83% \[[=\-]+\]$")
-        self.assertRegex(lines[2], r"^7d 63% \[[=\-]+\]$")
+        self.assertEqual(4, len(lines))
+        self.assertRegex(lines[2], r"^5h 83% \[[=\-]+\]$")
+        self.assertRegex(lines[3], r"^7d 63% \[[=\-]+\]$")
 
     def test_install_script_codex_target_installs_tmux_assets(self):
         install_home, _ = self._run_install("--target", "codex")
@@ -653,6 +846,21 @@ class StatusLineTests(unittest.TestCase):
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_COMMON_NAME).exists())
         self.assertFalse((install_home / ".claude" / "statusline.sh").exists())
+
+    def test_install_script_claude_target_installs_shared_helper(self):
+        install_home, _ = self._run_install()
+
+        self.assertTrue((install_home / ".claude" / "statusline.sh").exists())
+        self.assertTrue((install_home / ".claude" / CLAUDE_STATUSLINE_COMMON_NAME).exists())
+
+    def test_install_script_claude_target_writes_shared_statusline_keys(self):
+        install_home, _ = self._run_install("--layout", "bars", "--bar-style", "dots", "--theme", "forest")
+        settings = json.loads((install_home / ".claude" / "settings.json").read_text())
+
+        self.assertEqual("~/.claude/statusline.sh", settings["statusLine"]["command"])
+        self.assertEqual("bars", settings["env"]["STATUSLINE_MODE"])
+        self.assertEqual("dots", settings["env"]["STATUSLINE_BAR_STYLE"])
+        self.assertEqual("forest", settings["env"]["STATUSLINE_THEME"])
 
     def test_install_script_codex_target_installs_dynamic_bars_tmux_launcher(self):
         install_home, _ = self._run_install("--target", "codex")
@@ -676,6 +884,14 @@ class StatusLineTests(unittest.TestCase):
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_STATUS_NAME).exists())
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
+
+    def test_install_script_uninstall_removes_claude_helper(self):
+        install_home, _ = self._run_install()
+        self.assertTrue((install_home / ".claude" / CLAUDE_STATUSLINE_COMMON_NAME).exists())
+
+        self._run_install("--uninstall", home=install_home)
+
+        self.assertFalse((install_home / ".claude" / CLAUDE_STATUSLINE_COMMON_NAME).exists())
 
     def test_tmux_status_script_renders_local_summary(self):
         """codex_tmux_status.sh shim now delegates to codex_statusline.sh."""

@@ -8,11 +8,78 @@ if (-not $input) {
 
 $esc = [char]0x1b
 
-$themeName = if ($env:CLAUDE_CODE_STATUSLINE_THEME) { $env:CLAUDE_CODE_STATUSLINE_THEME } else { "default" }
-$layoutName = if ($env:CLAUDE_CODE_STATUSLINE_LAYOUT) { $env:CLAUDE_CODE_STATUSLINE_LAYOUT } else { "compact" }
-$barStyleName = if ($env:CLAUDE_CODE_STATUSLINE_BAR_STYLE) { $env:CLAUDE_CODE_STATUSLINE_BAR_STYLE } else { "ascii" }
-$pctMode = if ($env:CLAUDE_CODE_STATUSLINE_PCT_MODE) { $env:CLAUDE_CODE_STATUSLINE_PCT_MODE } else { "used" }
-if ($pctMode -notin @("used", "left")) { $pctMode = "used" }
+if ($env:USERPROFILE) {
+    $settingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
+} else {
+    $settingsPath = Join-Path $HOME ".claude\settings.json"
+}
+
+$script:claudeSettings = $null
+if (Test-Path $settingsPath) {
+    try {
+        $script:claudeSettings = Get-Content $settingsPath -Raw | ConvertFrom-Json
+    } catch {}
+}
+
+function Get-SettingsEnvValue([string]$name) {
+    if (-not $script:claudeSettings -or -not $script:claudeSettings.env) {
+        return $null
+    }
+
+    $property = $script:claudeSettings.env.PSObject.Properties[$name]
+    if ($property -and $null -ne $property.Value -and "$($property.Value)") {
+        return [string]$property.Value
+    }
+
+    return $null
+}
+
+function Resolve-StatuslineSetting([string[]]$names, [string]$defaultValue) {
+    foreach ($name in $names) {
+        $envValue = [Environment]::GetEnvironmentVariable($name)
+        if ($envValue) {
+            return $envValue
+        }
+    }
+
+    foreach ($name in $names) {
+        $settingsValue = Get-SettingsEnvValue $name
+        if ($settingsValue) {
+            return $settingsValue
+        }
+    }
+
+    return $defaultValue
+}
+
+function Resolve-BoolStatuslineSetting([string[]]$names, [bool]$defaultValue) {
+    $requested = Resolve-StatuslineSetting $names ""
+    if (-not $requested) {
+        return $defaultValue
+    }
+
+    switch ($requested.ToLowerInvariant()) {
+        "1" { return $true }
+        "true" { return $true }
+        "yes" { return $true }
+        "on" { return $true }
+        "0" { return $false }
+        "false" { return $false }
+        "no" { return $false }
+        "off" { return $false }
+        default { return $defaultValue }
+    }
+}
+
+$themeName = Resolve-StatuslineSetting @("STATUSLINE_THEME", "CLAUDE_CODE_STATUSLINE_THEME") "default"
+$layoutName = Resolve-StatuslineSetting @("STATUSLINE_MODE", "CLAUDE_CODE_STATUSLINE_LAYOUT") "compact"
+$barStyleName = Resolve-StatuslineSetting @("STATUSLINE_BAR_STYLE", "CLAUDE_CODE_STATUSLINE_BAR_STYLE") "ascii"
+$script:configuredMaxWidth = Resolve-StatuslineSetting @("STATUSLINE_MAX_WIDTH", "CLAUDE_CODE_STATUSLINE_MAX_WIDTH") ""
+$script:sevenDayTimeSetting = Resolve-StatuslineSetting @("STATUSLINE_DAILY_TIME_FORMAT", "STATUSLINE_SEVEN_DAY_TIME_FORMAT", "CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT") ""
+$script:showBarsGitLine = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_GIT_LINE", "CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE") $true
+$script:showBarsOverviewLine = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_OVERVIEW_LINE", "CLAUDE_CODE_STATUSLINE_SHOW_OVERVIEW_LINE") $true
+$script:showHourlyBar = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_HOURLY_BAR", "CLAUDE_CODE_STATUSLINE_SHOW_HOURLY_BAR") $true
+$script:showDailyBar = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_DAILY_BAR", "CLAUDE_CODE_STATUSLINE_SHOW_DAILY_BAR") $true
 if ($layoutName -notin @("compact", "bars")) { $layoutName = "compact" }
 switch -Wildcard ($barStyleName) {
     "dots" {
@@ -183,19 +250,9 @@ function Get-UsageColor([int]$pct) {
     return $green
 }
 
-function Get-DisplayPct([int]$usedPct) {
-    if ($script:pctMode -eq "left") { return 100 - $usedPct }
-    return $usedPct
-}
-
-function Get-PctSuffix {
-    if ($script:pctMode -eq "left") { return " left" }
-    return ""
-}
-
 function Get-MaxWidth {
-    if ($env:CLAUDE_CODE_STATUSLINE_MAX_WIDTH -match '^[1-9]\d*$') {
-        return [int]$env:CLAUDE_CODE_STATUSLINE_MAX_WIDTH
+    if ($script:configuredMaxWidth -match '^[1-9]\d*$') {
+        return [int]$script:configuredMaxWidth
     }
     if ($env:COLUMNS -match '^[1-9]\d*$') {
         return [int]$env:COLUMNS
@@ -320,7 +377,7 @@ function Test-FutureTime([string]$isoStr) {
     }
 }
 
-$sevenDayTimeFormat = Resolve-SevenDayTimeFormat $env:CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT
+$sevenDayTimeFormat = Resolve-SevenDayTimeFormat $script:sevenDayTimeSetting
 
 function Get-GitStat([string]$repoPath) {
     $lines = @()
@@ -405,10 +462,8 @@ function Build-FiveHourSegment {
     }
 
     $pctColor = Get-UsageColor $script:fiveHourPct
-    $dispPct = Get-DisplayPct $script:fiveHourPct
-    $suffix = Get-PctSuffix
-    $plain = "5h ${dispPct}%${suffix}"
-    $text = "${dim}5h${reset} ${pctColor}${dispPct}%${suffix}${reset}"
+    $plain = "5h $($script:fiveHourPct)%"
+    $text = "${dim}5h${reset} ${pctColor}$($script:fiveHourPct)%${reset}"
     if ($script:showFiveHourReset -and $script:fiveHourReset) {
         $plain += " $($script:fiveHourReset)"
         $text += " ${dim}$($script:fiveHourReset)${reset}"
@@ -422,10 +477,8 @@ function Build-SevenDaySegment {
     }
 
     $pctColor = Get-UsageColor $script:sevenDayPct
-    $dispPct = Get-DisplayPct $script:sevenDayPct
-    $suffix = Get-PctSuffix
-    $plain = "7d ${dispPct}%${suffix}"
-    $text = "${dim}7d${reset} ${pctColor}${dispPct}%${suffix}${reset}"
+    $plain = "7d $($script:sevenDayPct)%"
+    $text = "${dim}7d${reset} ${pctColor}$($script:sevenDayPct)%${reset}"
     if ($script:showSevenDayReset -and $script:sevenDayReset) {
         $plain += " $($script:sevenDayReset)"
         $text += " ${dim}$($script:sevenDayReset)${reset}"
@@ -450,7 +503,6 @@ function Compose-Output {
     $script:gitSegmentLen = 0
 
     $segments.Add((Build-ModelSegment))
-    $segments.Add((Build-EffSegment))
 
     $gitSegment = Build-GitSegment
     if ($gitSegment) {
@@ -459,6 +511,7 @@ function Compose-Output {
     }
 
     $segments.Add((Build-CtxSegment))
+    $segments.Add((Build-EffSegment))
     if ($script:includeUsageSummary) {
         $segments.Add((Build-FiveHourSegment))
         if ($script:showSevenDay) {
@@ -492,6 +545,7 @@ function Compose-Output {
 
 function Build-UsageBarLine([string]$label, [int]$pctValue, [string]$pctText, [string]$fullTime, [string]$shortTime) {
     $timeText = $fullTime
+    $minReadableBarWidth = 8
     if ($label -eq "5h" -and $script:maxWidth -le 44) {
         $timeText = $null
     }
@@ -507,14 +561,23 @@ function Build-UsageBarLine([string]$label, [int]$pctValue, [string]$pctText, [s
     $minBarWidth = 4
     $fixedWidth = $label.Length + 1 + $pctText.Length + 1 + 2
     if ($timeText) { $fixedWidth += 1 + $timeText.Length }
+    $availableWidth = $script:maxWidth - $fixedWidth
+
+    if ($availableWidth -lt $minReadableBarWidth -and $timeText) {
+        $timeText = $null
+        $fixedWidth = $label.Length + 1 + $pctText.Length + 1 + 2
+        $availableWidth = $script:maxWidth - $fixedWidth
+    }
+
+    if ($availableWidth -lt $minReadableBarWidth) {
+        return $null
+    }
 
     $barWidth = $baseBarWidth
-    $availableWidth = $script:maxWidth - $fixedWidth
     if ($availableWidth -lt $barWidth) { $barWidth = $availableWidth }
     if ($barWidth -lt $minBarWidth) { $barWidth = $minBarWidth }
 
-    $barPct = if ($script:pctMode -eq "left") { 100 - $pctValue } else { $pctValue }
-    $filledWidth = if ($barPct -gt 0) { [math]::Floor($barPct * $barWidth / 100) } else { 0 }
+    $filledWidth = if ($pctValue -gt 0) { [math]::Floor($pctValue * $barWidth / 100) } else { 0 }
     if ($filledWidth -gt $barWidth) { $filledWidth = $barWidth }
     $emptyWidth = $barWidth - $filledWidth
 
@@ -539,6 +602,67 @@ function Build-UsageBarLine([string]$label, [int]$pctValue, [string]$pctText, [s
     }
 
     return New-Segment $text $plain
+}
+
+function Build-BarsGitLine {
+    if (-not $script:displayDir) {
+        return $null
+    }
+
+    $repoName = $script:displayDir
+    $branchName = $script:gitBranch
+    if ($branchName) {
+        $plainText = "$repoName@$branchName"
+        if ($plainText.Length -gt $script:maxWidth) {
+            $branchNameLimit = $script:maxWidth - $repoName.Length - 1
+            if ($branchNameLimit -le 3) {
+                $branchName = "..."
+            } elseif ($branchName.Length -gt $branchNameLimit) {
+                $branchName = Truncate-Middle $branchName $branchNameLimit
+            }
+            $plainText = "$repoName@$branchName"
+        }
+        if ($plainText.Length -gt $script:maxWidth) {
+            $plainText = Truncate-Middle $plainText $script:maxWidth
+        }
+        $combinedPlain = "$repoName@$branchName"
+        if ($plainText -ne $combinedPlain) {
+            $textOutput = "${muted}$plainText${reset}"
+        } else {
+            $textOutput = "${muted}$repoName${reset}${dim}@${reset}${muted}$branchName${reset}"
+        }
+        return New-Segment $textOutput $plainText
+    }
+
+    $plainText = $repoName
+    if ($plainText.Length -gt $script:maxWidth) {
+        $plainText = Truncate-Middle $plainText $script:maxWidth
+    }
+    return New-Segment "${muted}$plainText${reset}" $plainText
+}
+
+function Build-BarsOverviewLine {
+    $segments = @(
+        Build-ModelSegment
+        Build-EffSegment
+        Build-CtxSegment
+    )
+
+    $plain = ($segments | ForEach-Object { $_.Plain }) -join $sepPlain
+    $text = ($segments | ForEach-Object { $_.Text }) -join $sepText
+    return New-Segment $text $plain
+}
+
+function Append-OutputLine([string]$line) {
+    if (-not $line) {
+        return
+    }
+
+    if ($script:outputText) {
+        $script:outputText += "`n$line"
+    } else {
+        $script:outputText = $line
+    }
 }
 
 function Render-CompactOutput([bool]$includeUsage) {
@@ -581,21 +705,41 @@ function Render-CompactOutput([bool]$includeUsage) {
 }
 
 function Render-BarsOutput {
-    Render-CompactOutput $false
-    $topLine = $script:outputText
+    $script:outputText = $null
 
-    $suffix = Get-PctSuffix
-    if ($script:usageAvailable) {
-        $fiveDisp = Get-DisplayPct $script:fiveHourPct
-        $sevenDisp = Get-DisplayPct $script:sevenDayPct
-        $fiveLine = Build-UsageBarLine "5h" $script:fiveHourPct "${fiveDisp}%${suffix}" $script:fiveHourReset $null
-        $sevenLine = Build-UsageBarLine "7d" $script:sevenDayPct "${sevenDisp}%${suffix}" $script:sevenDayReset $script:sevenDayDate
-    } else {
-        $fiveLine = Build-UsageBarLine "5h" 0 "--" "n/a" $null
-        $sevenLine = Build-UsageBarLine "7d" 0 "--" "n/a" $null
+    if ($script:showBarsGitLine) {
+        $gitLine = Build-BarsGitLine
+        if ($gitLine) {
+            Append-OutputLine $gitLine.Text
+        }
     }
 
-    $script:outputText = $topLine + "`n" + $fiveLine.Text + "`n" + $sevenLine.Text
+    if ($script:showBarsOverviewLine) {
+        $overviewLine = Build-BarsOverviewLine
+        Append-OutputLine $overviewLine.Text
+    }
+
+    if ($script:showHourlyBar) {
+        if ($script:usageAvailable) {
+            $fiveLine = Build-UsageBarLine "5h" $script:fiveHourPct "$($script:fiveHourPct)%" $script:fiveHourReset $null
+        } else {
+            $fiveLine = Build-UsageBarLine "5h" 0 "--" "n/a" $null
+        }
+        if ($fiveLine) {
+            Append-OutputLine $fiveLine.Text
+        }
+    }
+
+    if ($script:showDailyBar) {
+        if ($script:usageAvailable) {
+            $sevenLine = Build-UsageBarLine "7d" $script:sevenDayPct "$($script:sevenDayPct)%" $script:sevenDayReset $script:sevenDayDate
+        } else {
+            $sevenLine = Build-UsageBarLine "7d" 0 "--" "n/a" $null
+        }
+        if ($sevenLine) {
+            Append-OutputLine $sevenLine.Text
+        }
+    }
 }
 
 $data = $input | ConvertFrom-Json
@@ -615,12 +759,8 @@ $pctUsed = if ($size -gt 0) { [math]::Floor($current * 100 / $size) } else { 0 }
 
 $effortLevel = if ($env:CLAUDE_CODE_EFFORT_LEVEL) { $env:CLAUDE_CODE_EFFORT_LEVEL } else { "medium" }
 if (-not $env:CLAUDE_CODE_EFFORT_LEVEL) {
-    $settingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
-    if (Test-Path $settingsPath) {
-        try {
-            $settings = Get-Content $settingsPath -Raw | ConvertFrom-Json
-            if ($settings.effortLevel) { $effortLevel = $settings.effortLevel }
-        } catch {}
+    if ($script:claudeSettings -and $script:claudeSettings.effortLevel) {
+        $effortLevel = $script:claudeSettings.effortLevel
     }
 }
 

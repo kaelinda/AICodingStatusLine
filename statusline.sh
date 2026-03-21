@@ -2,6 +2,15 @@
 
 set -f
 
+script_dir="$(cd "$(dirname "$0")" && pwd)"
+common_script="$script_dir/codex_statusline_common.sh"
+if [ ! -f "$common_script" ]; then
+    printf 'missing shared helper: %s\n' "$common_script" >&2
+    exit 1
+fi
+# shellcheck source=./codex_statusline_common.sh
+. "$common_script"
+
 input=$(cat)
 
 if [ -z "$input" ]; then
@@ -9,14 +18,35 @@ if [ -z "$input" ]; then
     exit 0
 fi
 
-theme_name="${CLAUDE_CODE_STATUSLINE_THEME:-default}"
-layout_name="${CLAUDE_CODE_STATUSLINE_LAYOUT:-compact}"
-bar_style_name="${CLAUDE_CODE_STATUSLINE_BAR_STYLE:-ascii}"
-pct_mode="${CLAUDE_CODE_STATUSLINE_PCT_MODE:-used}"
-case "$pct_mode" in
-    used|left) ;;
-    *) pct_mode="used" ;;
-esac
+settings_path="$HOME/.claude/settings.json"
+theme_name=$(statusline_resolve_json_setting "$settings_path" "default" \
+    STATUSLINE_THEME \
+    CLAUDE_CODE_STATUSLINE_THEME)
+layout_name=$(statusline_resolve_json_setting "$settings_path" "compact" \
+    STATUSLINE_MODE \
+    CLAUDE_CODE_STATUSLINE_LAYOUT)
+bar_style_name=$(statusline_resolve_json_setting "$settings_path" "ascii" \
+    STATUSLINE_BAR_STYLE \
+    CLAUDE_CODE_STATUSLINE_BAR_STYLE)
+claude_statusline_max_width=$(statusline_resolve_json_setting "$settings_path" "" \
+    STATUSLINE_MAX_WIDTH \
+    CLAUDE_CODE_STATUSLINE_MAX_WIDTH)
+seven_day_time_requested=$(statusline_resolve_json_setting "$settings_path" "" \
+    STATUSLINE_DAILY_TIME_FORMAT \
+    STATUSLINE_SEVEN_DAY_TIME_FORMAT \
+    CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT)
+show_bars_git_line=$(statusline_resolve_json_bool_setting "$settings_path" "1" \
+    STATUSLINE_SHOW_GIT_LINE \
+    CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE)
+show_bars_overview_line=$(statusline_resolve_json_bool_setting "$settings_path" "1" \
+    STATUSLINE_SHOW_OVERVIEW_LINE \
+    CLAUDE_CODE_STATUSLINE_SHOW_OVERVIEW_LINE)
+show_hourly_bar=$(statusline_resolve_json_bool_setting "$settings_path" "1" \
+    STATUSLINE_SHOW_HOURLY_BAR \
+    CLAUDE_CODE_STATUSLINE_SHOW_HOURLY_BAR)
+show_daily_bar=$(statusline_resolve_json_bool_setting "$settings_path" "1" \
+    STATUSLINE_SHOW_DAILY_BAR \
+    CLAUDE_CODE_STATUSLINE_SHOW_DAILY_BAR)
 case "$layout_name" in
     bars|compact) ;;
     *) layout_name="compact" ;;
@@ -204,21 +234,6 @@ usage_color() {
     fi
 }
 
-display_pct() {
-    local used_pct=$1
-    if [ "$pct_mode" = "left" ]; then
-        printf "%d" $(( 100 - used_pct ))
-    else
-        printf "%d" "$used_pct"
-    fi
-}
-
-pct_suffix() {
-    if [ "$pct_mode" = "left" ]; then
-        printf " left"
-    fi
-}
-
 is_valid_seven_day_time_format() {
     local value="$1"
     [[ "$value" =~ ^(%[yYmdHMbB]|[[:space:]/:-])+$ ]]
@@ -240,8 +255,8 @@ is_positive_int() {
 }
 
 get_max_width() {
-    if is_positive_int "${CLAUDE_CODE_STATUSLINE_MAX_WIDTH:-}"; then
-        printf "%s" "$CLAUDE_CODE_STATUSLINE_MAX_WIDTH"
+    if is_positive_int "${claude_statusline_max_width:-}"; then
+        printf "%s" "$claude_statusline_max_width"
         return
     fi
 
@@ -308,9 +323,6 @@ compose_segments() {
     build_model_segment
     add_segment "$SEG_TEXT" "$SEG_PLAIN"
 
-    build_eff_segment
-    add_segment "$SEG_TEXT" "$SEG_PLAIN"
-
     build_git_segment
     if [ -n "$SEG_PLAIN" ]; then
         GIT_SEGMENT_LEN=${#SEG_PLAIN}
@@ -318,6 +330,9 @@ compose_segments() {
     fi
 
     build_ctx_segment
+    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+
+    build_eff_segment
     add_segment "$SEG_TEXT" "$SEG_PLAIN"
 
     if [ "$include_usage_summary" -eq 1 ]; then
@@ -428,12 +443,10 @@ build_five_hour_segment() {
         return
     fi
 
-    local pct_color disp_pct suffix
+    local pct_color
     pct_color=$(usage_color "$five_hour_pct")
-    disp_pct=$(display_pct "$five_hour_pct")
-    suffix=$(pct_suffix)
-    SEG_PLAIN="5h ${disp_pct}%${suffix}"
-    SEG_TEXT="${dim}5h${reset} ${pct_color}${disp_pct}%${suffix}${reset}"
+    SEG_PLAIN="5h ${five_hour_pct}%"
+    SEG_TEXT="${dim}5h${reset} ${pct_color}${five_hour_pct}%${reset}"
     if [ "$show_five_hour_reset" -eq 1 ] && [ -n "$five_hour_reset" ]; then
         SEG_PLAIN+=" ${five_hour_reset}"
         SEG_TEXT+=" ${dim}${five_hour_reset}${reset}"
@@ -447,12 +460,10 @@ build_seven_day_segment() {
         return
     fi
 
-    local pct_color disp_pct suffix
+    local pct_color
     pct_color=$(usage_color "$seven_day_pct")
-    disp_pct=$(display_pct "$seven_day_pct")
-    suffix=$(pct_suffix)
-    SEG_PLAIN="7d ${disp_pct}%${suffix}"
-    SEG_TEXT="${dim}7d${reset} ${pct_color}${disp_pct}%${suffix}${reset}"
+    SEG_PLAIN="7d ${seven_day_pct}%"
+    SEG_TEXT="${dim}7d${reset} ${pct_color}${seven_day_pct}%${reset}"
     if [ "$show_seven_day_reset" -eq 1 ] && [ -n "$seven_day_reset" ]; then
         SEG_PLAIN+=" ${seven_day_reset}"
         SEG_TEXT+=" ${dim}${seven_day_reset}${reset}"
@@ -486,6 +497,7 @@ build_usage_bar_line() {
     local time_text="$full_time"
     local base_bar_width=10
     local min_bar_width=4
+    local min_readable_bar_width=8
 
     if [ "$label" = "5h" ] && [ "$max_width" -le 44 ]; then
         time_text=""
@@ -499,13 +511,26 @@ build_usage_bar_line() {
         fi
     fi
 
-    local fixed_width=$(( ${#label} + 1 + ${#pct_text} + 1 + 2 ))
+    local fixed_width available_width
+    fixed_width=$(( ${#label} + 1 + ${#pct_text} + 1 + 2 ))
     if [ -n "$time_text" ]; then
         fixed_width=$(( fixed_width + 1 + ${#time_text} ))
     fi
+    available_width=$(( max_width - fixed_width ))
+
+    if [ "$available_width" -lt "$min_readable_bar_width" ] && [ -n "$time_text" ]; then
+        time_text=""
+        fixed_width=$(( ${#label} + 1 + ${#pct_text} + 1 + 2 ))
+        available_width=$(( max_width - fixed_width ))
+    fi
+
+    if [ "$available_width" -lt "$min_readable_bar_width" ]; then
+        LINE_PLAIN=""
+        LINE_TEXT=""
+        return
+    fi
 
     local bar_width=$base_bar_width
-    local available_width=$(( max_width - fixed_width ))
     if [ "$available_width" -lt "$bar_width" ]; then
         bar_width="$available_width"
     fi
@@ -513,13 +538,9 @@ build_usage_bar_line() {
         bar_width="$min_bar_width"
     fi
 
-    local bar_pct="$pct_value"
-    if [ "$pct_mode" = "left" ]; then
-        bar_pct=$(( 100 - pct_value ))
-    fi
     local filled_width=0
-    if [ "$bar_pct" -gt 0 ]; then
-        filled_width=$(( bar_pct * bar_width / 100 ))
+    if [ "$pct_value" -gt 0 ]; then
+        filled_width=$(( pct_value * bar_width / 100 ))
     fi
     if [ "$filled_width" -gt "$bar_width" ]; then
         filled_width="$bar_width"
@@ -547,6 +568,82 @@ build_usage_bar_line() {
         LINE_PLAIN+=" ${time_text}"
         LINE_TEXT+=" ${time_color}${time_text}${reset}"
     fi
+}
+
+build_bars_git_line() {
+    LINE_PLAIN=""
+    LINE_TEXT=""
+
+    [ -n "$display_dir" ] || return
+
+    local repo_name="$display_dir"
+    local branch_name="$git_branch"
+    local plain_text text_output
+
+    if [ -n "$branch_name" ]; then
+        local combined_plain
+        plain_text="${repo_name}@${branch_name}"
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            local branch_name_limit=$(( max_width - ${#repo_name} - 1 ))
+            if [ "$branch_name_limit" -le 3 ]; then
+                branch_name="..."
+            elif [ ${#branch_name} -gt "$branch_name_limit" ]; then
+                branch_name=$(truncate_middle "$branch_name" "$branch_name_limit")
+            fi
+            plain_text="${repo_name}@${branch_name}"
+        fi
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            plain_text=$(truncate_middle "$plain_text" "$max_width")
+        fi
+        combined_plain="${repo_name}@${branch_name}"
+        if [ "$plain_text" != "$combined_plain" ]; then
+            text_output="${muted}${plain_text}${reset}"
+        else
+            text_output="${muted}${repo_name}${reset}${dim}@${reset}${muted}${branch_name}${reset}"
+        fi
+    else
+        plain_text="$repo_name"
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            plain_text=$(truncate_middle "$plain_text" "$max_width")
+        fi
+        text_output="${muted}${plain_text}${reset}"
+    fi
+
+    LINE_PLAIN="$plain_text"
+    LINE_TEXT="$text_output"
+}
+
+build_bars_overview_line() {
+    local overview_text=""
+    local overview_plain=""
+
+    build_model_segment
+    overview_text="$SEG_TEXT"
+    overview_plain="$SEG_PLAIN"
+
+    build_eff_segment
+    overview_text+="$sep_text$SEG_TEXT"
+    overview_plain+="$sep_plain$SEG_PLAIN"
+
+    build_ctx_segment
+    overview_text+="$sep_text$SEG_TEXT"
+    overview_plain+="$sep_plain$SEG_PLAIN"
+
+    LINE_TEXT="$overview_text"
+    LINE_PLAIN="$overview_plain"
+}
+
+append_output_line() {
+    local next_line="$1"
+
+    [ -n "$next_line" ] || return
+
+    if [ -n "$OUTPUT_TEXT" ]; then
+        OUTPUT_TEXT="${OUTPUT_TEXT}"$'\n'"${next_line}"
+        return
+    fi
+
+    OUTPUT_TEXT="$next_line"
 }
 
 render_compact_output() {
@@ -594,29 +691,35 @@ render_bars_output() {
     local full_five_time="$five_hour_reset"
     local full_seven_time="$seven_day_reset"
     local short_seven_time="$seven_day_date"
+    OUTPUT_TEXT=""
 
-    render_compact_output 0
-    local top_line="$OUTPUT_TEXT"
-
-    local five_disp seven_disp suffix
-    suffix=$(pct_suffix)
-    if [ "$usage_available" -eq 1 ]; then
-        five_disp=$(display_pct "$five_hour_pct")
-        build_usage_bar_line "5h" "$five_hour_pct" "${five_disp}%${suffix}" "$full_five_time" ""
-    else
-        build_usage_bar_line "5h" 0 "--" "n/a" ""
+    if [ "$show_bars_git_line" -eq 1 ]; then
+        build_bars_git_line
+        append_output_line "$LINE_TEXT"
     fi
-    local five_line="$LINE_TEXT"
 
-    if [ "$usage_available" -eq 1 ]; then
-        seven_disp=$(display_pct "$seven_day_pct")
-        build_usage_bar_line "7d" "$seven_day_pct" "${seven_disp}%${suffix}" "$full_seven_time" "$short_seven_time"
-    else
-        build_usage_bar_line "7d" 0 "--" "n/a" ""
+    if [ "$show_bars_overview_line" -eq 1 ]; then
+        build_bars_overview_line
+        append_output_line "$LINE_TEXT"
     fi
-    local seven_line="$LINE_TEXT"
 
-    OUTPUT_TEXT="${top_line}"$'\n'"${five_line}"$'\n'"${seven_line}"
+    if [ "$show_hourly_bar" -eq 1 ]; then
+        if [ "$usage_available" -eq 1 ]; then
+            build_usage_bar_line "5h" "$five_hour_pct" "${five_hour_pct}%" "$full_five_time" ""
+        else
+            build_usage_bar_line "5h" 0 "--" "n/a" ""
+        fi
+        append_output_line "$LINE_TEXT"
+    fi
+
+    if [ "$show_daily_bar" -eq 1 ]; then
+        if [ "$usage_available" -eq 1 ]; then
+            build_usage_bar_line "7d" "$seven_day_pct" "${seven_day_pct}%" "$full_seven_time" "$short_seven_time"
+        else
+            build_usage_bar_line "7d" 0 "--" "n/a" ""
+        fi
+        append_output_line "$LINE_TEXT"
+    fi
 }
 
 get_oauth_token() {
@@ -724,7 +827,7 @@ format_reset_time() {
     [ -n "$formatted" ] && printf "%s" "$formatted"
 }
 
-seven_day_time_format=$(resolve_seven_day_time_format "${CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT:-}")
+seven_day_time_format=$(resolve_seven_day_time_format "$seven_day_time_requested")
 
 model_name=$(echo "$input" | jq -r '.model.display_name // "Claude"')
 
@@ -745,7 +848,6 @@ else
     pct_used=0
 fi
 
-settings_path="$HOME/.claude/settings.json"
 effort_level="medium"
 if [ -n "$CLAUDE_CODE_EFFORT_LEVEL" ]; then
     effort_level="$CLAUDE_CODE_EFFORT_LEVEL"
