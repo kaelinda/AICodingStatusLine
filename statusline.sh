@@ -22,7 +22,7 @@ settings_path="$HOME/.claude/settings.json"
 theme_name=$(statusline_resolve_json_setting "$settings_path" "default" \
     STATUSLINE_THEME \
     CLAUDE_CODE_STATUSLINE_THEME)
-layout_name=$(statusline_resolve_json_setting "$settings_path" "compact" \
+layout_name=$(statusline_resolve_json_setting "$settings_path" "bars" \
     STATUSLINE_MODE \
     CLAUDE_CODE_STATUSLINE_LAYOUT)
 bar_style_name=$(statusline_resolve_json_setting "$settings_path" "ascii" \
@@ -49,7 +49,7 @@ show_daily_bar=$(statusline_resolve_json_bool_setting "$settings_path" "1" \
     CLAUDE_CODE_STATUSLINE_SHOW_DAILY_BAR)
 case "$layout_name" in
     bars|compact) ;;
-    *) layout_name="compact" ;;
+    *) layout_name="bars" ;;
 esac
 case "$bar_style_name" in
     dots)
@@ -272,7 +272,7 @@ get_max_width() {
         return
     fi
 
-    printf "100"
+    printf "750"
 }
 
 truncate_middle() {

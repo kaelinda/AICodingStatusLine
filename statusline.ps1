@@ -72,7 +72,7 @@ function Resolve-BoolStatuslineSetting([string[]]$names, [bool]$defaultValue) {
 }
 
 $themeName = Resolve-StatuslineSetting @("STATUSLINE_THEME", "CLAUDE_CODE_STATUSLINE_THEME") "default"
-$layoutName = Resolve-StatuslineSetting @("STATUSLINE_MODE", "CLAUDE_CODE_STATUSLINE_LAYOUT") "compact"
+$layoutName = Resolve-StatuslineSetting @("STATUSLINE_MODE", "CLAUDE_CODE_STATUSLINE_LAYOUT") "bars"
 $barStyleName = Resolve-StatuslineSetting @("STATUSLINE_BAR_STYLE", "CLAUDE_CODE_STATUSLINE_BAR_STYLE") "ascii"
 $script:configuredMaxWidth = Resolve-StatuslineSetting @("STATUSLINE_MAX_WIDTH", "CLAUDE_CODE_STATUSLINE_MAX_WIDTH") ""
 $script:sevenDayTimeSetting = Resolve-StatuslineSetting @("STATUSLINE_DAILY_TIME_FORMAT", "STATUSLINE_SEVEN_DAY_TIME_FORMAT", "CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT") ""
@@ -80,7 +80,7 @@ $script:showBarsGitLine = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_GIT_L
 $script:showBarsOverviewLine = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_OVERVIEW_LINE", "CLAUDE_CODE_STATUSLINE_SHOW_OVERVIEW_LINE") $true
 $script:showHourlyBar = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_HOURLY_BAR", "CLAUDE_CODE_STATUSLINE_SHOW_HOURLY_BAR") $true
 $script:showDailyBar = Resolve-BoolStatuslineSetting @("STATUSLINE_SHOW_DAILY_BAR", "CLAUDE_CODE_STATUSLINE_SHOW_DAILY_BAR") $true
-if ($layoutName -notin @("compact", "bars")) { $layoutName = "compact" }
+if ($layoutName -notin @("compact", "bars")) { $layoutName = "bars" }
 switch -Wildcard ($barStyleName) {
     "dots" {
         $barFilledChar = [string][char]0x25CF
@@ -262,7 +262,7 @@ function Get-MaxWidth {
             return [int]$Host.UI.RawUI.WindowSize.Width
         }
     } catch {}
-    return 100
+    return 750
 }
 
 function Truncate-Middle([string]$value, [int]$limit) {

@@ -32,7 +32,7 @@ fi
 config_file="$HOME/.codex/config.toml"
 session_base="${CODEX_STATUSLINE_SESSION_DIR:-$HOME/.codex/sessions}"
 theme_name="${CODEX_STATUSLINE_THEME:-$(statusline_toml_get "$config_file" theme default)}"
-layout_name="${CODEX_STATUSLINE_LAYOUT:-$(statusline_toml_get "$config_file" layout compact)}"
+layout_name="${CODEX_STATUSLINE_LAYOUT:-$(statusline_toml_get "$config_file" layout bars)}"
 bar_style_name="${CODEX_STATUSLINE_BAR_STYLE:-$(statusline_toml_get "$config_file" bar_style ascii)}"
 
 # Output format: tmux (#[fg=...]) vs ansi (\033[...m)
@@ -505,7 +505,7 @@ get_max_width() {
         return
     fi
 
-    printf "100"
+    printf "750"
 }
 
 truncate_middle() {
@@ -1041,3 +1041,4 @@ else
     printf "%b" "$OUTPUT_TEXT"
 fi
 exit 0
+ 0
