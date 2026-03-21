@@ -252,9 +252,9 @@ show_overview_line = true
 ## 🧪 测试
 
 ```bash
-python3 -m pytest tests/test_statusline.py          # 完整测试套件
-printf '%s' '{"cwd":"/tmp","model":{"display_name":"Opus 4.6"}}' | ./statusline.sh  # Claude Code 冒烟测试
-CODEX_MODEL_NAME=gpt-5.4 ./codex_statusline.sh .    # Codex 冒烟测试
+python3 -m pytest tests/test_statusline.py                          # 完整测试套件
+printf '%s' '{"cwd":"/tmp","model":{"display_name":"Opus 4.6"}}' | ./scripts/statusline.sh  # Claude Code 冒烟测试
+CODEX_MODEL_NAME=gpt-5.4 ./scripts/codex_statusline.sh .            # Codex 冒烟测试
 ```
 
 ---

@@ -9,12 +9,12 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-SHELL_SCRIPT = ROOT / "statusline.sh"
-PS_SCRIPT = ROOT / "statusline.ps1"
+SHELL_SCRIPT = ROOT / "scripts" / "statusline.sh"
+PS_SCRIPT = ROOT / "scripts" / "statusline.ps1"
 INSTALL_SCRIPT = ROOT / "install.sh"
-TMUX_LAUNCHER_SCRIPT = ROOT / "codex_tmux.sh"
-TMUX_STATUS_SCRIPT = ROOT / "codex_tmux_status.sh"
-CODEX_SCRIPT = ROOT / "codex_statusline.sh"
+TMUX_LAUNCHER_SCRIPT = ROOT / "scripts" / "codex_tmux.sh"
+TMUX_STATUS_SCRIPT = ROOT / "scripts" / "codex_tmux_status.sh"
+CODEX_SCRIPT = ROOT / "scripts" / "codex_statusline.sh"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 DOTS_BAR_RE = r"[\u25cf\u25cb]+"
 DEFAULT_7D_TIME = "03 06 08:00"

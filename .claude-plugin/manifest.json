@@ -1,0 +1,19 @@
+{
+  "name": "aicoding-statusline",
+  "version": "1.0.0",
+  "description": "Claude Code & Codex CLI 状态栏 — 主题、布局、进度条、用量显示",
+  "author": {
+    "name": "kaelinda"
+  },
+  "category": "productivity",
+  "source": {
+    "source": "url",
+    "url": "https://github.com/kaelinda/AICodingStatusLine.git"
+  },
+  "homepage": "https://github.com/kaelinda/AICodingStatusLine",
+  "skills": ["./skills/statusline"],
+  "hooks": {
+    "postInstall": "./scripts/post-install.sh"
+  },
+  "tags": ["statusline", "theme", "usage", "codex"]
+}

@@ -200,10 +200,10 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 
 ```bash
 # Bash
-printf '%s' '{"cwd":"/tmp","model":{"display_name":"Opus 4.6"}}' | ./statusline.sh
+printf '%s' '{"cwd":"/tmp","model":{"display_name":"Opus 4.6"}}' | ./scripts/statusline.sh
 
 # PowerShell
-pwsh -NoProfile -File ./statusline.ps1 < sample.json
+pwsh -NoProfile -File ./scripts/statusline.ps1 < sample.json
 ```
 
 ---
