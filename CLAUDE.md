@@ -16,13 +16,13 @@ python3 -m unittest tests/test_statusline.py
 python3 -m unittest tests.test_statusline.StatusLineTests.test_wide_budget_keeps_all_segments
 
 # Smoke-test Bash script
-printf '%s' '{"cwd":"/tmp","model":{"display_name":"Opus 4.6"}}' | ./statusline.sh
+printf '%s' '{"cwd":"/tmp","model":{"display_name":"Opus 4.6"}}' | ./scripts/statusline.sh
 
 # Smoke-test PowerShell script
-pwsh -NoProfile -File ./statusline.ps1 < sample.json
+pwsh -NoProfile -File ./scripts/statusline.ps1 < sample.json
 
 # Smoke-test Codex status line
-CODEX_MODEL_NAME=gpt-5.4 ./codex_statusline.sh /path/to/project
+CODEX_MODEL_NAME=gpt-5.4 ./scripts/codex_statusline.sh /path/to/project
 ```
 
 There is no build pipeline, linter, or formatter. Scripts are edited directly.

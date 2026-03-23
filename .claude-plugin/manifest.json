@@ -7,11 +7,10 @@
   },
   "category": "productivity",
   "source": {
-    "source": "url",
+    "type": "url",
     "url": "https://github.com/kaelinda/AICodingStatusLine.git"
   },
   "homepage": "https://github.com/kaelinda/AICodingStatusLine",
-  "skills": ["./skills/statusline"],
   "hooks": {
     "postInstall": "./scripts/post-install.sh"
   },

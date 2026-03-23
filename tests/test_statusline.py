@@ -715,7 +715,7 @@ class StatusLineTests(unittest.TestCase):
 
         self.assertIn("codex-tmux", readme_text)
         self.assertIn("tmux", readme_text.lower())
-        self.assertIn("codex-statusline", readme_text.lower())
+        self.assertIn("codex_statusline", readme_text.lower())
 
 
 class CodexStatusLineTests(unittest.TestCase):

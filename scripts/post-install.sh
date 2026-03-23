@@ -4,9 +4,8 @@
 # 
 # 此脚本在插件安装后自动执行，完成以下任务：
 # 1. 复制 statusline.sh 到 ~/.claude/
-# 2. 检查并安装依赖 (jq, curl)
-# 3. 更新 ~/.claude/settings.json 的 statusLine.command
-# 4. 设置默认配置
+# 2. 检查依赖 (jq, curl)，缺失则退出
+# 3. 更新 ~/.claude/settings.json 的 statusLine 配置
 
 set -e
 
@@ -26,22 +25,20 @@ echo -e "${BLUE}║   AICoding StatusLine - 插件安装后配置               
 echo -e "${BLUE}╚════════════════════════════════════════════════════════════╝${NC}"
 
 # 步骤 1: 复制 statusline.sh 到 ~/.claude/
-echo -e "\n${YELLOW}[1/4] 复制 statusline.sh 到 ~/.claude/${NC}"
+echo -e "\n${YELLOW}[1/3] 复制 statusline.sh 到 ~/.claude/${NC}"
 mkdir -p ~/.claude
 cp "$SCRIPT_DIR/statusline.sh" ~/.claude/statusline.sh
 chmod +x ~/.claude/statusline.sh
 echo -e "${GREEN}✓ 已复制 statusline.sh 到 ~/.claude/${NC}"
 
 # 步骤 2: 检查并安装依赖
-echo -e "\n${YELLOW}[2/4] 检查依赖${NC}"
+echo -e "\n${YELLOW}[2/3] 检查依赖${NC}"
 
 # 检查 curl
+MISSING_DEPS=()
 if ! command -v curl &> /dev/null; then
     echo -e "${RED}✗ curl 未安装${NC}"
-    echo "  请安装 curl: "
-    echo "    - macOS: brew install curl"
-    echo "    - Ubuntu/Debian: sudo apt-get install curl"
-    echo "    - CentOS/RHEL: sudo yum install curl"
+    MISSING_DEPS+=("curl")
 else
     echo -e "${GREEN}✓ curl 已安装: $(curl --version | head -1)${NC}"
 fi
@@ -49,16 +46,22 @@ fi
 # 检查 jq
 if ! command -v jq &> /dev/null; then
     echo -e "${RED}✗ jq 未安装${NC}"
-    echo "  请安装 jq: "
-    echo "    - macOS: brew install jq"
-    echo "    - Ubuntu/Debian: sudo apt-get install jq"
-    echo "    - CentOS/RHEL: sudo yum install jq"
+    MISSING_DEPS+=("jq")
 else
     echo -e "${GREEN}✓ jq 已安装: $(jq --version)${NC}"
 fi
 
+if [ ${#MISSING_DEPS[@]} -gt 0 ]; then
+    echo -e "${RED}缺少必要依赖: ${MISSING_DEPS[*]}${NC}"
+    echo "  请安装后重新运行:"
+    echo "    - macOS: brew install ${MISSING_DEPS[*]}"
+    echo "    - Ubuntu/Debian: sudo apt-get install ${MISSING_DEPS[*]}"
+    echo "    - CentOS/RHEL: sudo yum install ${MISSING_DEPS[*]}"
+    exit 1
+fi
+
 # 步骤 3: 更新 ~/.claude/settings.json
-echo -e "\n${YELLOW}[3/4] 配置 Claude Code settings.json${NC}"
+echo -e "\n${YELLOW}[3/3] 配置 Claude Code settings.json${NC}"
 SETTINGS_FILE=~/.claude/settings.json
 
 if [ -f "$SETTINGS_FILE" ]; then
@@ -70,19 +73,14 @@ fi
 # 创建或更新 settings.json
 if [ -f "$SETTINGS_FILE" ]; then
     # 使用 jq 更新 statusLine.command
-    if command -v jq &> /dev/null; then
-        tmp_file=$(mktemp)
-        jq '.statusLine.command = "~/.claude/statusline.sh"' "$SETTINGS_FILE" > "$tmp_file" 2>/dev/null || true
-        if [ -s "$tmp_file" ]; then
-            mv "$tmp_file" "$SETTINGS_FILE"
-            echo -e "${GREEN}✓ 已更新 statusLine.command${NC}"
-        else
-            rm -f "$tmp_file"
-            echo -e "${YELLOW}! 无法更新 settings.json，请手动配置${NC}"
-        fi
+    tmp_file=$(mktemp)
+    jq '.statusLine = { "type": "command", "command": "~/.claude/statusline.sh" }' "$SETTINGS_FILE" > "$tmp_file" 2>/dev/null || true
+    if [ -s "$tmp_file" ]; then
+        mv "$tmp_file" "$SETTINGS_FILE"
+        echo -e "${GREEN}✓ 已更新 statusLine 配置${NC}"
     else
-        echo -e "${YELLOW}! jq 未安装，请手动更新 settings.json:${NC}"
-        echo '  添加或修改: "statusLine": { "command": "~/.claude/statusline.sh" }'
+        rm -f "$tmp_file"
+        echo -e "${YELLOW}! 无法更新 settings.json，请手动配置${NC}"
     fi
 else
     # 创建新的 settings.json
@@ -96,42 +94,17 @@ EOF
     echo -e "${GREEN}✓ 已创建 settings.json${NC}"
 fi
 
-# 步骤 4: 设置默认配置
-echo -e "\n${YELLOW}[4/4] 设置默认配置${NC}"
-
-# 创建默认配置文件
-CONFIG_FILE=~/.claude/statusline.conf
-if [ ! -f "$CONFIG_FILE" ]; then
-    cat > "$CONFIG_FILE" << 'EOF'
-# AICoding StatusLine 默认配置
-# 主题: dots (圆点主题) 或 squares (方块主题)
-STATUSLINE_THEME="${STATUSLINE_THEME:-dots}"
-
-# 显示用量信息
-STATUSLINE_SHOW_USAGE="${STATUSLINE_SHOW_USAGE:-true}"
-
-# 显示进度条
-STATUSLINE_SHOW_PROGRESS="${STATUSLINE_SHOW_PROGRESS:-true}"
-
-# 显示模型名称
-STATUSLINE_SHOW_MODEL="${STATUSLINE_SHOW_MODEL:-true}"
-EOF
-    echo -e "${GREEN}✓ 已创建默认配置文件: $CONFIG_FILE${NC}"
-else
-    echo -e "${GREEN}✓ 配置文件已存在: $CONFIG_FILE${NC}"
-fi
-
 # 完成
-echo -e "\n${GREEN}╔════════════════════════════════════════════════════════════╗${NC}"
-echo -e "${GREEN}║   ✓ AICoding StatusLine 插件安装完成！                      ║${NC}"
-echo -e "${GREEN}╚════════════════════════════════════════════════════════════╝${NC}"
+echo -e "\n${GREEN}╔══════════════════════════════════════════════════════╗${NC}"
+echo -e "${GREEN}║   AICoding StatusLine 插件安装完成！                 ║${NC}"
+echo -e "${GREEN}╚══════════════════════════════════════════════════════╝${NC}"
 echo ""
 echo "配置文件位置:"
 echo "  - 脚本: ~/.claude/statusline.sh"
-echo "  - 配置: ~/.claude/statusline.conf"
 echo "  - 设置: ~/.claude/settings.json"
 echo ""
 echo "自定义配置:"
-echo "  编辑 ~/.claude/statusline.conf 更改主题、用量显示等"
+echo "  通过环境变量配置主题和布局，详见 README.md"
+echo "  例: CLAUDE_CODE_STATUSLINE_THEME=forest"
 echo ""
 echo "重新启动 Claude Code 以使状态栏生效。"
