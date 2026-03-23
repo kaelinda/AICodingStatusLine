@@ -10,7 +10,7 @@ if [ -z "$input" ]; then
 fi
 
 theme_name="${CLAUDE_CODE_STATUSLINE_THEME:-default}"
-layout_name="${CLAUDE_CODE_STATUSLINE_LAYOUT:-compact}"
+layout_name="${CLAUDE_CODE_STATUSLINE_LAYOUT:-bars}"
 bar_style_name="${CLAUDE_CODE_STATUSLINE_BAR_STYLE:-ascii}"
 pct_mode="${CLAUDE_CODE_STATUSLINE_PCT_MODE:-used}"
 case "$pct_mode" in
@@ -19,7 +19,7 @@ case "$pct_mode" in
 esac
 case "$layout_name" in
     bars|compact) ;;
-    *) layout_name="compact" ;;
+    *) layout_name="bars" ;;
 esac
 case "$bar_style_name" in
     dots)

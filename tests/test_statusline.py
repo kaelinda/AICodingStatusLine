@@ -194,7 +194,7 @@ class StatusLineTests(unittest.TestCase):
     def _write_usage(self, payload) -> None:
         self.usage_cache.write_text(json.dumps(payload))
 
-    def _run_shell(self, budget=None, usage=True, cwd=None, raw=False, extra_env=None):
+    def _run_shell(self, budget=None, usage=True, cwd=None, raw=False, extra_env=None, layout="compact"):
         env = os.environ.copy()
         env["HOME"] = str(self.cache_home)
         env["TZ"] = "UTC"
@@ -202,6 +202,8 @@ class StatusLineTests(unittest.TestCase):
         for key in list(env):
             if key.startswith("CLAUDE_CODE_STATUSLINE_"):
                 del env[key]
+        if layout is not None:
+            env["CLAUDE_CODE_STATUSLINE_LAYOUT"] = layout
         if budget is not None:
             env["CLAUDE_CODE_STATUSLINE_MAX_WIDTH"] = str(budget)
         if extra_env:
@@ -247,11 +249,13 @@ class StatusLineTests(unittest.TestCase):
         )
         return install_home, strip_ansi(result.stdout)
 
-    def _run_tmux_status(self, cwd=None, extra_env=None):
+    def _run_tmux_status(self, cwd=None, extra_env=None, layout="compact"):
         env = os.environ.copy()
         env["HOME"] = str(self.cache_home)
         env["TZ"] = "UTC"
         env["CODEX_STATUSLINE_FORMAT"] = "ansi"  # Force ANSI in tests
+        if layout is not None:
+            env["CODEX_STATUSLINE_LAYOUT"] = layout
         # Isolate from real session data
         empty_sessions = Path(self.temp_dir.name) / "empty-sessions"
         empty_sessions.mkdir(exist_ok=True)
@@ -405,14 +409,20 @@ class StatusLineTests(unittest.TestCase):
                 f"Theme '{theme}' changed plain text output",
             )
 
-    def test_unknown_layout_falls_back_to_compact(self):
-        default_output = self._run_shell(budget=100)
+    def test_unknown_layout_falls_back_to_bars(self):
+        bars_output = self._run_shell(budget=100, layout="bars")
         unknown_output = self._run_shell(
             budget=100,
+            layout=None,
             extra_env={"CLAUDE_CODE_STATUSLINE_LAYOUT": "mystery"},
         )
 
-        self.assertEqual(default_output, unknown_output)
+        self.assertEqual(bars_output, unknown_output)
+
+    def test_default_layout_is_bars(self):
+        output = self._run_shell(budget=120, layout=None)
+        lines = output.splitlines()
+        self.assertEqual(3, len(lines))
 
     def test_powershell_script_source_is_ascii_only_for_windows_compat(self):
         script_bytes = PS_SCRIPT.read_bytes()
@@ -763,7 +773,7 @@ class CodexStatusLineTests(unittest.TestCase):
                 config_text += "\n"
         (self.codex_home / "config.toml").write_text(config_text)
 
-    def _run_codex(self, budget=None, extra_env=None, raw=False, write_session=True, cwd=None, args=None):
+    def _run_codex(self, budget=None, extra_env=None, raw=False, write_session=True, cwd=None, args=None, layout="compact"):
         env = os.environ.copy()
         env["HOME"] = str(Path(self.temp_dir.name))
         env["TZ"] = "UTC"
@@ -783,6 +793,8 @@ class CodexStatusLineTests(unittest.TestCase):
             cache.unlink()
         except FileNotFoundError:
             pass
+        if layout is not None:
+            env["CODEX_STATUSLINE_LAYOUT"] = layout
         if budget is not None:
             env["CODEX_STATUSLINE_MAX_WIDTH"] = str(budget)
         if extra_env:
@@ -1039,24 +1051,24 @@ class CodexStatusLineTests(unittest.TestCase):
         self._write_codex_config(
             'layout = "bars"\nshow_git_line = false\nshow_overview_line = false\n'
         )
-        output = self._run_codex(budget=120)
+        output = self._run_codex(budget=120, layout=None)
         lines = output.splitlines()
         self.assertEqual(2, len(lines))
         self.assertRegex(lines[0], rf"^5h {CODEX_5H_LEFT}% left \[[=\-]+\] \d{{2}}:\d{{2}} reset$")
         self.assertRegex(lines[1], rf"^weekly {CODEX_WEEKLY_LEFT}% left \[[=\-]+\] {re.escape(CODEX_2W_TIME)}$")
-        self.assertEqual("", self._run_codex(budget=120, args=["--line", "1"]).strip())
-        self.assertEqual("", self._run_codex(budget=120, args=["--line", "2"]).strip())
+        self.assertEqual("", self._run_codex(budget=120, layout=None, args=["--line", "1"]).strip())
+        self.assertEqual("", self._run_codex(budget=120, layout=None, args=["--line", "2"]).strip())
 
     def test_codex_bars_layout_visibility_uses_config_when_env_missing(self):
         self._write_codex_config(
             'layout = "bars"\nshow_git_line = false\nshow_overview_line = true\n'
         )
-        output = self._run_codex(budget=120)
+        output = self._run_codex(budget=120, layout=None)
         lines = output.splitlines()
         self.assertEqual(3, len(lines))
         self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", lines[0])
-        self.assertEqual("", self._run_codex(budget=120, args=["--line", "1"]).strip())
-        self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", self._run_codex(budget=120, args=["--line", "2"]).strip())
+        self.assertEqual("", self._run_codex(budget=120, layout=None, args=["--line", "1"]).strip())
+        self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", self._run_codex(budget=120, layout=None, args=["--line", "2"]).strip())
 
     def test_codex_bars_layout_visibility_env_overrides_config(self):
         self._write_codex_config(
@@ -1253,13 +1265,14 @@ class CodexStatusLineTests(unittest.TestCase):
         self.assertIn("--line 3)", joined)
         self.assertIn("--line 4)", joined)
 
-    def test_codex_unknown_layout_falls_back_to_compact(self):
-        default_output = self._run_codex(budget=100)
+    def test_codex_unknown_layout_falls_back_to_bars(self):
+        bars_output = self._run_codex(budget=100, layout="bars")
         unknown_output = self._run_codex(
             budget=100,
+            layout=None,
             extra_env={"CODEX_STATUSLINE_LAYOUT": "mystery"},
         )
-        self.assertEqual(default_output, unknown_output)
+        self.assertEqual(bars_output, unknown_output)
 
     def test_codex_all_themes_same_plain_text(self):
         default_plain = self._run_codex(budget=100)

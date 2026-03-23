@@ -9,11 +9,11 @@ if (-not $input) {
 $esc = [char]0x1b
 
 $themeName = if ($env:CLAUDE_CODE_STATUSLINE_THEME) { $env:CLAUDE_CODE_STATUSLINE_THEME } else { "default" }
-$layoutName = if ($env:CLAUDE_CODE_STATUSLINE_LAYOUT) { $env:CLAUDE_CODE_STATUSLINE_LAYOUT } else { "compact" }
+$layoutName = if ($env:CLAUDE_CODE_STATUSLINE_LAYOUT) { $env:CLAUDE_CODE_STATUSLINE_LAYOUT } else { "bars" }
 $barStyleName = if ($env:CLAUDE_CODE_STATUSLINE_BAR_STYLE) { $env:CLAUDE_CODE_STATUSLINE_BAR_STYLE } else { "ascii" }
 $pctMode = if ($env:CLAUDE_CODE_STATUSLINE_PCT_MODE) { $env:CLAUDE_CODE_STATUSLINE_PCT_MODE } else { "used" }
 if ($pctMode -notin @("used", "left")) { $pctMode = "used" }
-if ($layoutName -notin @("compact", "bars")) { $layoutName = "compact" }
+if ($layoutName -notin @("compact", "bars")) { $layoutName = "bars" }
 switch -Wildcard ($barStyleName) {
     "dots" {
         $barFilledChar = [string][char]0x25CF

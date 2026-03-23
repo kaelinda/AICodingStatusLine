@@ -128,7 +128,7 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `CLAUDE_CODE_STATUSLINE_LAYOUT` | `compact` | 布局模式：`compact` 或 `bars` |
+| `CLAUDE_CODE_STATUSLINE_LAYOUT` | `bars` | 布局模式：`bars` 或 `compact` |
 | `CLAUDE_CODE_STATUSLINE_BAR_STYLE` | `ascii` | 进度条字符（见 [README 进度条样式](../README.md#-布局与样式)），支持 `custom:X:Y` 自定义 |
 | `CLAUDE_CODE_STATUSLINE_THEME` | `default` | 配色主题：`default`、`forest`、`dracula`、`monokai`、`solarized`、`ocean`、`sunset`、`amber`、`rose` |
 | `CLAUDE_CODE_STATUSLINE_MAX_WIDTH` | 终端宽度 | 强制指定宽度预算（正整数） |

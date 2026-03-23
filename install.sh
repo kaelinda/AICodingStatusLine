@@ -231,7 +231,7 @@ do_install() {
 
         local cur_theme cur_layout cur_bar
         cur_theme=$(jq -r '.env.CLAUDE_CODE_STATUSLINE_THEME // "default"' "$SETTINGS_FILE")
-        cur_layout=$(jq -r '.env.CLAUDE_CODE_STATUSLINE_LAYOUT // "compact"' "$SETTINGS_FILE")
+        cur_layout=$(jq -r '.env.CLAUDE_CODE_STATUSLINE_LAYOUT // "bars"' "$SETTINGS_FILE")
         cur_bar=$(jq -r '.env.CLAUDE_CODE_STATUSLINE_BAR_STYLE // "ascii"' "$SETTINGS_FILE")
         printf "  主题: ${CYAN}%s${RESET}\n" "$cur_theme"
         printf "  布局: ${CYAN}%s${RESET}\n" "$cur_layout"

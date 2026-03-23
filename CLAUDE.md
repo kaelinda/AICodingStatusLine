@@ -55,7 +55,7 @@ When output exceeds `max_width`, segments collapse in a fixed priority order:
 
 ### Layouts and Configuration
 
-- `CLAUDE_CODE_STATUSLINE_LAYOUT`: `compact` (default single-line) or `bars` (overview line + two progress-bar lines for 5h/7d)
+- `CLAUDE_CODE_STATUSLINE_LAYOUT`: `bars` (default, overview line + two progress-bar lines for 5h/7d) or `compact` (single-line)
 - `CLAUDE_CODE_STATUSLINE_BAR_STYLE`: `ascii` (default), `dots`, `squares` -- only affects `bars` layout
 - `CLAUDE_CODE_STATUSLINE_THEME`: `default` or `forest` -- changes ANSI color palette
 - `CLAUDE_CODE_STATUSLINE_MAX_WIDTH`: force a specific width budget

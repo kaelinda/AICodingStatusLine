@@ -186,8 +186,8 @@ show_overview_line = true
 
 | 值 | 说明 | Claude Code 环境变量 | Codex 环境变量 / config.toml |
 |----|------|---------------------|------------------------------|
-| `compact` | **默认**。所有信息压缩在一行 | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `CODEX_STATUSLINE_LAYOUT` / `layout` |
-| `bars` | Claude 为 3 行；Codex 为 2–4 行（含进度条） | 同上 | 同上 |
+| `bars` | **默认**。Claude 为 3 行；Codex 为 2–4 行（含进度条） | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `CODEX_STATUSLINE_LAYOUT` / `layout` |
+| `compact` | 所有信息压缩在一行 | 同上 | 同上 |
 
 ### 进度条样式（仅 `bars` 布局生效）
 

@@ -120,7 +120,7 @@ Codex 支持两种配置方式，**环境变量优先级高于 config.toml**。
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
 | `CODEX_STATUSLINE_THEME` | `default` | 主题（与 Claude Code 相同的 9 种） |
-| `CODEX_STATUSLINE_LAYOUT` | `compact` | 布局：`compact` 或 `bars` |
+| `CODEX_STATUSLINE_LAYOUT` | `bars` | 布局：`bars` 或 `compact` |
 | `CODEX_STATUSLINE_BAR_STYLE` | `ascii` | 进度条样式（见 [README 进度条样式](../README.md#-布局与样式)），支持 `custom:填充:空白` 自定义 |
 | `CODEX_STATUSLINE_SHOW_GIT_LINE` | `true` | 仅对 `bars` 布局生效，控制第 1 行 `repo@branch` 是否显示 |
 | `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` | `true` | 仅对 `bars` 布局生效，控制第 2 行 `model \| eff \| ctx` 是否显示 |
@@ -240,7 +240,7 @@ show_git_line=false, show_overview_line=false  -> 2 行: 5h / weekly
 
 如果第 1 或第 2 行被隐藏，对应 `--line` 会返回空字符串；tmux 启动器会自动把可见行映射到新的显示顺序。
 
-布局来源优先级：环境变量 `CODEX_STATUSLINE_LAYOUT` > `config.toml` 的 `[statusline].layout` > 默认 `compact`。
+布局来源优先级：环境变量 `CODEX_STATUSLINE_LAYOUT` > `config.toml` 的 `[statusline].layout` > 默认 `bars`。
 
 ---
 
