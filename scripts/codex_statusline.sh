@@ -250,6 +250,46 @@ find_recent_limits_line() {
     return 1
 }
 
+read_hook_state() {
+    local cache_file="${CODEX_STATUSLINE_HOOK_CACHE_FILE:-/tmp/codex/statusline-hook-cache.json}"
+    local cache_ttl="${CODEX_STATUSLINE_HOOK_TTL:-600}"
+    local updated_at now_epoch
+
+    [ "$show_hook_segment" -eq 1 ] || return 1
+    [ -f "$cache_file" ] || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+
+    updated_at=$(jq -r '.updated_at // 0' "$cache_file" 2>/dev/null)
+    [[ "$updated_at" =~ ^[0-9]+$ ]] || return 1
+
+    now_epoch=$(resolve_now_epoch)
+    if [ $(( now_epoch - updated_at )) -gt "$cache_ttl" ] 2>/dev/null; then
+        return 1
+    fi
+
+    jq -r '.summary // empty' "$cache_file" 2>/dev/null
+}
+
+read_notify_state() {
+    local cache_file="${CODEX_STATUSLINE_NOTIFY_CACHE_FILE:-/tmp/codex/statusline-notify-cache.json}"
+    local cache_ttl="${CODEX_STATUSLINE_NOTIFY_TTL:-600}"
+    local updated_at now_epoch
+
+    [ "$show_notify_segment" -eq 1 ] || return 1
+    [ -f "$cache_file" ] || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+
+    updated_at=$(jq -r '.updated_at // 0' "$cache_file" 2>/dev/null)
+    [[ "$updated_at" =~ ^[0-9]+$ ]] || return 1
+
+    now_epoch=$(resolve_now_epoch)
+    if [ $(( now_epoch - updated_at )) -gt "$cache_ttl" ] 2>/dev/null; then
+        return 1
+    fi
+
+    jq -r '.summary // .message // empty' "$cache_file" 2>/dev/null
+}
+
 parse_token_count_line() {
     local line="$1"
 
@@ -614,6 +654,32 @@ build_ctx_segment() {
     SEG_TEXT="${dim}ctx${reset} ${white}${used_tokens}/${total_tokens}${reset} ${pct_color}${pct_used}%${reset}"
 }
 
+build_hook_segment() {
+    SEG_PLAIN=""
+    SEG_TEXT=""
+
+    [ -n "$hook_summary" ] || return
+
+    SEG_PLAIN="hook ${hook_summary}"
+    SEG_TEXT="${dim}hook${reset} ${accent}${hook_summary}${reset}"
+}
+
+build_notify_segment() {
+    local summary_text="$notify_summary"
+
+    SEG_PLAIN=""
+    SEG_TEXT=""
+
+    [ -n "$summary_text" ] || return
+
+    if [ ${#summary_text} -gt 24 ]; then
+        summary_text=$(truncate_middle "$summary_text" 24)
+    fi
+
+    SEG_PLAIN="notify ${summary_text}"
+    SEG_TEXT="${dim}notify${reset} ${teal}${summary_text}${reset}"
+}
+
 build_eff_segment() {
     local effort_label effort_text
     case "$effort_level" in
@@ -695,6 +761,20 @@ compose_segments() {
     if segment_enabled "ctx"; then
         build_ctx_segment
         add_segment "$SEG_TEXT" "$SEG_PLAIN"
+    fi
+
+    if [ "$show_hook_segment" -eq 1 ] && segment_enabled "hook"; then
+        build_hook_segment
+        if [ -n "$SEG_PLAIN" ]; then
+            add_segment "$SEG_TEXT" "$SEG_PLAIN"
+        fi
+    fi
+
+    if [ "$show_notify_segment" -eq 1 ] && segment_enabled "notify"; then
+        build_notify_segment
+        if [ -n "$SEG_PLAIN" ]; then
+            add_segment "$SEG_TEXT" "$SEG_PLAIN"
+        fi
     fi
 
     if [ "$include_repo_segment" -eq 1 ] && segment_enabled "git"; then
@@ -964,6 +1044,8 @@ effort_level=$(resolve_effort)
 two_week_time_format=$(resolve_two_week_time_format "${CODEX_STATUSLINE_TWO_WEEK_TIME_FORMAT:-$(statusline_toml_get "$config_file" two_week_time_format "")}")
 show_bars_git_line=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_GIT_LINE:-$(statusline_toml_get "$config_file" show_git_line "")}" "1")
 show_bars_overview_line=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_OVERVIEW_LINE:-$(statusline_toml_get "$config_file" show_overview_line "")}" "1")
+show_hook_segment=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_HOOK_SEGMENT:-$(statusline_toml_get "$config_file" show_hook_segment "")}" "0")
+show_notify_segment=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_NOTIFY_SEGMENT:-$(statusline_toml_get "$config_file" show_notify_segment "")}" "0")
 
 display_dir="${target_dir##*/}"
 git_branch=""
@@ -1035,6 +1117,9 @@ if [ -n "$session_json" ]; then
         fi
     fi
 fi
+
+hook_summary="$(read_hook_state 2>/dev/null || true)"
+notify_summary="$(read_notify_state 2>/dev/null || true)"
 
 [ -n "$git_stat" ] && show_git_diff=1
 max_width=$(get_max_width)

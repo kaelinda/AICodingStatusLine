@@ -15,6 +15,8 @@ INSTALL_SCRIPT = ROOT / "install.sh"
 TMUX_LAUNCHER_SCRIPT = ROOT / "scripts" / "codex_tmux.sh"
 TMUX_STATUS_SCRIPT = ROOT / "scripts" / "codex_tmux_status.sh"
 CODEX_SCRIPT = ROOT / "scripts" / "codex_statusline.sh"
+HOOK_SIDECAR_SCRIPT = ROOT / "scripts" / "codex_hook_sidecar.sh"
+NOTIFY_BRIDGE_SCRIPT = ROOT / "scripts" / "codex_notify_bridge.sh"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 DOTS_BAR_RE = r"[\u25cf\u25cb]+"
 DEFAULT_7D_TIME = "03 06 08:00"
@@ -29,6 +31,8 @@ CODEX_TMUX_LAUNCHER_NAME = "codex-tmux"
 CODEX_TMUX_STATUS_NAME = "codex-tmux-status"
 CODEX_STATUSLINE_NAME = "codex-statusline"
 CODEX_STATUSLINE_COMMON_NAME = "codex-statusline-common.sh"
+CODEX_HOOK_SIDECAR_NAME = "codex-hook-sidecar"
+CODEX_NOTIFY_BRIDGE_NAME = "codex-notify-bridge"
 
 # Simulated Codex session JSONL token_count event
 CODEX_TOKEN_COUNT_EVENT = {
@@ -733,6 +737,14 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn('tmux set-option -t "$session_name" -q status "${#visible_lines[@]}"', launcher_text)
         self.assertIn('tmux set-option -t "$session_name" -q "status-format[$idx]" "  #($status_base --line ${visible_lines[$idx]})"', launcher_text)
 
+    def test_install_script_codex_native_target_writes_tui_status_line(self):
+        install_home, _ = self._run_install("--target", "codex-native")
+
+        config_text = (install_home / ".codex" / "config.toml").read_text()
+        self.assertIn("[tui]", config_text)
+        self.assertIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_text)
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
+
     def test_install_script_uninstall_removes_tmux_assets(self):
         install_home, _ = self._run_install("--target", "codex")
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
@@ -744,6 +756,15 @@ class StatusLineTests(unittest.TestCase):
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_STATUS_NAME).exists())
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
+
+    def test_install_script_uninstall_removes_native_tui_status_line(self):
+        install_home, _ = self._run_install("--target", "codex-native")
+        config_file = install_home / ".codex" / "config.toml"
+        self.assertIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_file.read_text())
+
+        self._run_install("--uninstall", home=install_home)
+
+        self.assertNotIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_file.read_text())
 
     def test_tmux_status_script_renders_local_summary(self):
         """codex_tmux_status.sh shim now delegates to codex_statusline.sh."""
@@ -784,6 +805,78 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("codex-tmux", readme_text)
         self.assertIn("tmux", readme_text.lower())
         self.assertIn("codex_statusline", readme_text.lower())
+
+    def test_install_script_codex_with_hooks_installs_hook_sidecar_and_hooks_json(self):
+        install_home, _ = self._run_install("--target", "codex", "--with-hooks")
+
+        hook_script = install_home / ".codex" / "bin" / CODEX_HOOK_SIDECAR_NAME
+        hooks_json = json.loads((install_home / ".codex" / "hooks.json").read_text())
+        config_text = (install_home / ".codex" / "config.toml").read_text()
+
+        self.assertTrue(hook_script.exists())
+        self.assertIn("SessionStart", hooks_json["hooks"])
+        self.assertIn("PreToolUse", hooks_json["hooks"])
+        self.assertIn("PostToolUse", hooks_json["hooks"])
+        self.assertIn(str(hook_script), json.dumps(hooks_json))
+        self.assertIn("[features]", config_text)
+        self.assertIn("codex_hooks = true", config_text)
+        self.assertIn("show_hook_segment = true", config_text)
+
+    def test_install_script_codex_native_with_notify_installs_notify_bridge_and_config(self):
+        install_home, _ = self._run_install("--target", "codex-native", "--with-notify")
+
+        notify_script = install_home / ".codex" / "bin" / CODEX_NOTIFY_BRIDGE_NAME
+        config_text = (install_home / ".codex" / "config.toml").read_text()
+
+        self.assertTrue(notify_script.exists())
+        self.assertIn(f'notify = ["{notify_script}"]', config_text)
+        self.assertIn("[tui]", config_text)
+        self.assertIn("notifications = true", config_text)
+
+    def test_install_script_codex_with_notify_enables_notify_segment_for_tmux(self):
+        install_home, _ = self._run_install("--target", "codex", "--with-notify")
+
+        config_text = (install_home / ".codex" / "config.toml").read_text()
+
+        self.assertIn('notify = ["', config_text)
+        self.assertIn("show_notify_segment = true", config_text)
+
+    def test_install_script_uninstall_removes_hook_sidecar_and_hooks_json_entries(self):
+        install_home, _ = self._run_install("--target", "codex", "--with-hooks")
+        hook_script = install_home / ".codex" / "bin" / CODEX_HOOK_SIDECAR_NAME
+        hooks_file = install_home / ".codex" / "hooks.json"
+
+        self._run_install("--uninstall", home=install_home)
+
+        self.assertFalse(hook_script.exists())
+        if hooks_file.exists():
+            self.assertNotIn(CODEX_HOOK_SIDECAR_NAME, hooks_file.read_text())
+
+    def test_install_script_uninstall_removes_notify_bridge_and_notify_settings(self):
+        install_home, _ = self._run_install("--target", "codex-native", "--with-notify")
+        notify_script = install_home / ".codex" / "bin" / CODEX_NOTIFY_BRIDGE_NAME
+        config_file = install_home / ".codex" / "config.toml"
+
+        self._run_install("--uninstall", home=install_home)
+
+        self.assertFalse(notify_script.exists())
+        config_text = config_file.read_text()
+        self.assertNotIn(CODEX_NOTIFY_BRIDGE_NAME, config_text)
+        self.assertNotIn("notifications = true", config_text)
+
+    def test_codex_docs_note_native_status_line_and_experimental_hooks(self):
+        readme_text = (ROOT / "README.md").read_text()
+        codex_doc_text = (ROOT / "docs" / "codex-cli.md").read_text()
+
+        self.assertIn("tui.status_line", readme_text)
+        self.assertIn("实验性 hooks", readme_text)
+        self.assertIn("--with-notify", readme_text)
+        self.assertIn("codex-native", codex_doc_text)
+        self.assertIn("tui.status_line", codex_doc_text)
+        self.assertIn("codex_hooks = true", codex_doc_text)
+        self.assertIn("notify =", codex_doc_text)
+        self.assertIn("git pull --ff-only", codex_doc_text)
+        self.assertIn("show_notify_segment", codex_doc_text)
 
 
 class CodexStatusLineTests(unittest.TestCase):
@@ -909,6 +1002,41 @@ class CodexStatusLineTests(unittest.TestCase):
 
         return tmux_log.read_text().splitlines()
 
+    def _run_hook_sidecar(self, payload):
+        cache = Path(self.temp_dir.name) / "hook-cache.json"
+        env = os.environ.copy()
+        env["CODEX_STATUSLINE_HOOK_CACHE_FILE"] = str(cache)
+
+        subprocess.run(
+            ["/bin/bash", str(HOOK_SIDECAR_SCRIPT)],
+            input=json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=ROOT,
+            check=True,
+        )
+
+        return json.loads(cache.read_text())
+
+    def _run_notify_bridge(self, payload=None, args=None):
+        cache = Path(self.temp_dir.name) / "notify-cache.json"
+        env = os.environ.copy()
+        env["CODEX_NOTIFY_BRIDGE_CACHE_FILE"] = str(cache)
+        env["CODEX_NOTIFY_BRIDGE_DISABLE_DESKTOP"] = "1"
+
+        subprocess.run(
+            ["/bin/bash", str(NOTIFY_BRIDGE_SCRIPT), *(args or [])],
+            input="" if payload is None else json.dumps(payload),
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=ROOT,
+            check=True,
+        )
+
+        return json.loads(cache.read_text())
+
     def test_codex_model_from_config(self):
         output = self._run_codex(budget=150)
         self.assertIn("gpt-5.4", output)
@@ -936,6 +1064,152 @@ class CodexStatusLineTests(unittest.TestCase):
 
         self.assertIn("ctx 129k/258k 50%", output)
         self.assertNotIn("ctx 8.5m/258k", output)
+
+    def test_codex_hook_sidecar_records_pretooluse_status(self):
+        state = self._run_hook_sidecar({
+            "hookEventName": "PreToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "npm test"},
+        })
+
+        self.assertEqual("PreToolUse", state["hook_event_name"])
+        self.assertEqual("bash run", state["summary"])
+        self.assertEqual("npm test", state["command_preview"])
+
+    def test_codex_hook_sidecar_marks_posttooluse_failure_from_exit_code(self):
+        state = self._run_hook_sidecar({
+            "hookEventName": "PostToolUse",
+            "tool_name": "Bash",
+            "tool_input": {"command": "npm test"},
+            "tool_response": "{\"exit_code\":1}",
+        })
+
+        self.assertEqual("PostToolUse", state["hook_event_name"])
+        self.assertEqual("bash fail", state["summary"])
+        self.assertEqual("1", state["exit_code"])
+
+    def test_codex_hook_segment_reads_recent_hook_cache(self):
+        hook_cache = Path(self.temp_dir.name) / "hook-cache.json"
+        hook_cache.write_text(json.dumps({
+            "hook_event_name": "PostToolUse",
+            "summary": "bash ok",
+            "updated_at": 1773350000,
+        }))
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_SHOW_HOOK_SEGMENT": "true",
+                "CODEX_STATUSLINE_HOOK_CACHE_FILE": str(hook_cache),
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertIn("hook bash ok", output)
+
+    def test_codex_notify_bridge_records_json_payload_from_stdin(self):
+        state = self._run_notify_bridge({
+            "title": "Codex",
+            "message": "Waiting for your approval",
+            "level": "info",
+        })
+
+        self.assertEqual("Codex", state["title"])
+        self.assertEqual("Waiting for your approval", state["message"])
+        self.assertEqual("info", state["level"])
+        self.assertEqual("Waiting for your approval", state["summary"])
+
+    def test_codex_notify_bridge_accepts_payload_from_first_argument(self):
+        state = self._run_notify_bridge(
+            args=[json.dumps({
+                "title": "Codex",
+                "message": "Task finished",
+                "status": "success",
+            })]
+        )
+
+        self.assertEqual("Codex", state["title"])
+        self.assertEqual("Task finished", state["message"])
+        self.assertEqual("success", state["level"])
+        self.assertEqual("Task finished", state["summary"])
+
+    def test_codex_notify_segment_reads_recent_notify_cache(self):
+        notify_cache = Path(self.temp_dir.name) / "notify-cache.json"
+        notify_cache.write_text(json.dumps({
+            "summary": "Waiting for approval",
+            "updated_at": 1773350000,
+        }))
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_SHOW_NOTIFY_SEGMENT": "true",
+                "CODEX_STATUSLINE_NOTIFY_CACHE_FILE": str(notify_cache),
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertIn("notify Waiting for approval", output)
+
+    def test_codex_segments_filter_can_hide_notify_segment(self):
+        notify_cache = Path(self.temp_dir.name) / "notify-cache.json"
+        notify_cache.write_text(json.dumps({
+            "summary": "Waiting for approval",
+            "updated_at": 1773350000,
+        }))
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_SHOW_NOTIFY_SEGMENT": "true",
+                "CODEX_STATUSLINE_NOTIFY_CACHE_FILE": str(notify_cache),
+                "CODEX_STATUSLINE_SEGMENTS": "model,eff,ctx,git,5h,7d",
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertNotIn("notify ", output)
+
+    def test_codex_bars_overview_includes_notify_segment(self):
+        notify_cache = Path(self.temp_dir.name) / "notify-cache.json"
+        notify_cache.write_text(json.dumps({
+            "summary": "Task finished",
+            "updated_at": 1773350000,
+        }))
+
+        output = self._run_codex(
+            budget=120,
+            extra_env={
+                "CODEX_STATUSLINE_LAYOUT": "bars",
+                "CODEX_STATUSLINE_SHOW_NOTIFY_SEGMENT": "true",
+                "CODEX_STATUSLINE_NOTIFY_CACHE_FILE": str(notify_cache),
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(4, len(lines))
+        self.assertIn("notify Task finished", lines[1])
+
+    def test_codex_segments_filter_can_hide_hook_segment(self):
+        hook_cache = Path(self.temp_dir.name) / "hook-cache.json"
+        hook_cache.write_text(json.dumps({
+            "hook_event_name": "PostToolUse",
+            "summary": "bash ok",
+            "updated_at": 1773350000,
+        }))
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_SHOW_HOOK_SEGMENT": "true",
+                "CODEX_STATUSLINE_HOOK_CACHE_FILE": str(hook_cache),
+                "CODEX_STATUSLINE_SEGMENTS": "model,eff,ctx,git,5h,7d",
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertNotIn("hook ", output)
 
     def test_codex_five_hour_segment(self):
         output = self._run_codex(budget=150)

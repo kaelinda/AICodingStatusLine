@@ -6,7 +6,7 @@
 
 <p align="center">
   <strong>Claude Code 状态栏 + Codex CLI 状态栏</strong><br>
-  Claude 走原生 statusLine hook，Codex 走 tmux 底栏
+  Claude 走原生 statusLine hook，Codex 支持原生 <code>tui.status_line</code>，本项目额外提供 tmux 增强底栏
 </p>
 
 <p align="center">
@@ -45,9 +45,13 @@ claude plugin install aicoding-statusline
 ```bash
 git clone https://github.com/kaelinda/AICodingStatusLine.git
 cd AICodingStatusLine
-./install.sh                # Claude Code（默认）
-./install.sh --target codex # Codex CLI
-./install.sh --target both  # 两者同时安装
+./install.sh                       # Claude Code（默认）
+./install.sh --target codex        # Codex tmux 增强模式
+./install.sh --target codex-native # Codex 原生 tui.status_line
+./install.sh --target codex --with-hooks # Codex tmux + 实验性 hooks sidecar
+./install.sh --target codex-native --with-notify # Codex 原生状态栏 + notify bridge
+./install.sh --target codex --with-hooks --with-notify # Codex tmux + hooks + notify
+./install.sh --target both         # Claude + Codex tmux
 ```
 
 支持安装时指定配置：
@@ -60,6 +64,18 @@ cd AICodingStatusLine
 
 ```bash
 ./install.sh --uninstall
+```
+
+更新：
+
+```bash
+git pull --ff-only
+
+# 按你当前使用的模式重新执行一次安装命令
+./install.sh --target codex-native
+./install.sh --target codex
+./install.sh --target codex --with-hooks
+./install.sh --target codex --with-hooks --with-notify
 ```
 
 ---
@@ -78,21 +94,61 @@ cd AICodingStatusLine
 
 ## 🟢 Codex CLI
 
-Codex CLI 没有原生 statusLine 扩展点，本项目通过 `tmux` 包装层实现底部状态栏。从 session JSONL 读取 token 用量和 5h / weekly 剩余额度。
+截至 2026-04-02，Codex 已经提供原生 `tui.status_line`，可配置基础状态栏项；另外还有实验性 hooks 能力。本项目当前为 Codex 提供两种接入方式：
 
-**启动：**
+- **原生模式**：写入 `~/.codex/config.toml` 的 `tui.status_line`，使用 Codex 官方 TUI 状态栏
+- **tmux 增强模式**：通过 `codex-tmux` 包装层补充 `5h` / `weekly`、多行 bars、Git diff、主题和宽度裁剪等增强能力
+
+如果你只想要官方内建 footer，用原生模式；如果你要多行进度条和速率限制展示，用 tmux 增强模式。
+
+### 原生模式
+
+安装：
+
+```bash
+./install.sh --target codex-native
+```
+
+这会把以下配置写入 `~/.codex/config.toml`：
+
+```toml
+[tui]
+status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
+```
+
+更新原生模式：
+
+```bash
+git pull --ff-only
+./install.sh --target codex-native
+```
+
+### tmux 增强模式
+
+本项目的增强模式通过 `tmux` 包装层实现底部状态栏，并从 session JSONL 读取 token 用量和 `5h` / `weekly` 剩余额度。
+
+启动：
 
 ```bash
 codex-tmux               # 需要 ~/.codex/bin 在 PATH 中
 ~/.codex/bin/codex-tmux   # 或使用完整路径
 ```
 
-**显示内容：**
+更新 tmux 增强模式：
+
+```bash
+git pull --ff-only
+./install.sh --target codex
+./install.sh --target codex --with-hooks
+./install.sh --target codex --with-hooks --with-notify
+```
+
+显示内容：
 
 - `compact`：模型名 | 推理努力 | ctx 使用率 | git 分支(+N -N) | 5h 剩余额度 | weekly 剩余额度
 - `bars`：第 1 行 `repo@branch`，第 2 行 `model | eff | ctx`，第 3 / 4 行为 `5h` 和 `weekly` 进度条
 
-**配置方式：** 通过 `~/.codex/config.toml` 的 `[statusline]` 段落持久化配置。
+配置方式：通过 `~/.codex/config.toml` 的 `[statusline]` 段落持久化配置。
 
 ```toml
 [statusline]
@@ -104,6 +160,63 @@ show_overview_line = true
 ```
 
 > 详细安装步骤、完整配置参考、tmux 多行布局说明请看 → [docs/codex-cli.md](docs/codex-cli.md)
+
+### 实验性 hooks
+
+Codex 现在还有实验性 hooks。它们更适合做生命周期脚本、通知、sidecar 状态采集，不是 Claude 那种可直接自定义整条状态栏渲染的 `statusLine.command`。
+
+启用方式示例：
+
+```toml
+[features]
+codex_hooks = true
+```
+
+本项目现在支持通过安装脚本一键接入 hooks sidecar：
+
+```bash
+./install.sh --target codex --with-hooks
+```
+
+这会自动：
+
+- 安装 `~/.codex/bin/codex-hook-sidecar`
+- 生成或合并 `~/.codex/hooks.json`
+- 打开 `~/.codex/config.toml` 中的 `[features].codex_hooks = true`
+- 在 tmux 增强模式下自动开启 `show_hook_segment = true`
+
+接入后，增强状态栏会多一个 `hook` 段落，用来显示最近一次 hooks 状态，例如：
+
+- `hook bash run`
+- `hook bash ok`
+- `hook bash fail`
+- `hook startup`
+
+> 官方当前仍有限制：`PreToolUse` / `PostToolUse` 的 matcher 目前只会收到 `Bash`，所以本项目的 sidecar 也只针对 Bash 工具流提供实时状态。
+
+### 原生通知 / notify bridge
+
+Codex 还支持顶层 `notify` 命令，用于在需要你关注时把 JSON payload 交给外部命令。本项目把它封装成一个轻量 bridge，可以和原生模式或 tmux 增强模式叠加使用。
+
+安装示例：
+
+```bash
+./install.sh --target codex-native --with-notify
+./install.sh --target codex --with-hooks --with-notify
+```
+
+这会自动：
+
+- 安装 `~/.codex/bin/codex-notify-bridge`
+- 写入 `~/.codex/config.toml` 顶层 `notify = ["~/.codex/bin/codex-notify-bridge"]`
+- 打开 `[tui].notifications = true`
+
+bridge 当前会：
+
+- 接收 Codex 发出的通知 payload，并把最近一次通知写到 `/tmp/codex/statusline-notify-cache.json`
+- 在支持的平台上尝试转发桌面通知：macOS 使用 `osascript`，Linux 使用 `notify-send`
+- 不要求 tmux；因此适合原生 `tui.status_line` 用户
+- 如果你在 tmux 增强模式下安装了 `--with-notify`，状态栏会自动显示 `notify ...` 段落
 
 ---
 
@@ -278,13 +391,15 @@ show_overview_line = true
 │   ├── codex_statusline.sh  # Codex CLI 状态栏
 │   ├── codex_tmux.sh        # Codex tmux 启动器
 │   ├── codex_tmux_status.sh # Codex tmux 状态栏渲染
+│   ├── codex_hook_sidecar.sh # Codex hooks sidecar 缓存写入器
+│   ├── codex_notify_bridge.sh # Codex notify bridge
 │   ├── codex_statusline_common.sh  # Codex 公共函数库
 │   └── post-install.sh      # SessionStart hook（幂等安装脚本）
 ├── skills/
 │   └── statusline/          # /statusline Skill
 ├── install.sh               # 手动一键安装脚本
 └── tests/
-    └── test_statusline.py   # 测试套件（75 项）
+    └── test_statusline.py   # 测试套件（103 项）
 ```
 
 ---
