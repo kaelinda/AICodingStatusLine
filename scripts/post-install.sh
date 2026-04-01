@@ -13,9 +13,11 @@ TARGET=~/.claude/statusline.sh
 SETTINGS_FILE=~/.claude/settings.json
 STAMP_FILE=~/.claude/.statusline-installed
 
-# 快速路径：源文件和目标一致且 settings 已配置，直接退出
+# 快速路径：源文件和目标一致且 settings 已配置 statusLine，直接退出
 if [ -f "$TARGET" ] && [ -f "$STAMP_FILE" ] && \
-   cmp -s "$SOURCE" "$TARGET" 2>/dev/null; then
+   cmp -s "$SOURCE" "$TARGET" 2>/dev/null && \
+   [ -f "$SETTINGS_FILE" ] && \
+   jq -e '.statusLine.command == "~/.claude/statusline.sh"' "$SETTINGS_FILE" >/dev/null 2>&1; then
     exit 0
 fi
 
