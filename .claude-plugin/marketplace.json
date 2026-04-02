@@ -1,6 +1,9 @@
 {
   "name": "aicoding-statusline-marketplace",
-"owner": {
+  "metadata": {
+    "description": "Claude Code 与 Codex CLI 状态栏插件集合，提供主题、布局、进度条与用量展示能力。"
+  },
+  "owner": {
     "name": "kaelinda"
   },
   "plugins": [
