@@ -353,8 +353,24 @@ function Get-GitStat([string]$repoPath) {
         if ($parts[1] -match '^\d+$') { $deleted += [int]$parts[1] }
     }
 
-    if (($added + $deleted) -gt 0) {
-        return "+$added -$deleted"
+    $untracked = 0
+    try {
+        $statusLines = @(git -C $repoPath status --porcelain 2>$null)
+        foreach ($statusLine in $statusLines) {
+            if ($statusLine -like "??*") { $untracked++ }
+        }
+    } catch {}
+
+    if (($added + $deleted + $untracked) -gt 0) {
+        $parts = @()
+        if (($added + $deleted) -gt 0) {
+            $parts += "+$added"
+            $parts += "-$deleted"
+        }
+        if ($untracked -gt 0) {
+            $parts += "?$untracked"
+        }
+        return ($parts -join " ")
     }
     return $null
 }
@@ -385,7 +401,17 @@ function Build-GitSegment {
     }
     if ($script:showGitDiff -and $script:gitStat) {
         $parts = $script:gitStat -split ' '
-        $text += " ${dim}(${reset}${green}$($parts[0])${reset} ${red}$($parts[1])${reset}${dim})${reset}"
+        $text += " ${dim}(${reset}"
+        if ($parts.Count -ge 1) {
+            $text += "${green}$($parts[0])${reset}"
+        }
+        if ($parts.Count -ge 2) {
+            $text += " ${red}$($parts[1])${reset}"
+        }
+        if ($parts.Count -ge 3) {
+            $text += " ${yellow}$($parts[2])${reset}"
+        }
+        $text += "${dim})${reset}"
     }
 
     return New-Segment $text $basePlain

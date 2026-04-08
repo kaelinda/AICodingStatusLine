@@ -368,6 +368,21 @@ class StatusLineTests(unittest.TestCase):
         output = self._run_shell(budget=130, cwd=repo_dir)
         self.assertRegex(output, r"\(\+\d+ -\d+\)")
 
+    def test_git_segment_includes_untracked_count(self):
+        repo_dir = Path(self.temp_dir.name) / "dirty-untracked-repo"
+        repo_dir.mkdir()
+        subprocess.run(["git", "init"], cwd=repo_dir, check=True, capture_output=True, text=True)
+        subprocess.run(["git", "config", "user.name", "Test User"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=repo_dir, check=True)
+        (repo_dir / "tracked.txt").write_text("base\n")
+        subprocess.run(["git", "add", "tracked.txt"], cwd=repo_dir, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=repo_dir, check=True, capture_output=True, text=True)
+        (repo_dir / "tracked.txt").write_text("base\nchange\n")
+        (repo_dir / "new.txt").write_text("untracked\n")
+
+        output = self._run_shell(budget=150, cwd=repo_dir)
+        self.assertRegex(output, r"\(\+\d+ -\d+ \?\d+\)")
+
     def test_powershell_matches_segment_order_when_available(self):
         shell_output = self._run_shell(budget=100)
         pwsh_output = self._run_pwsh(budget=100)
