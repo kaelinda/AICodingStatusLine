@@ -84,7 +84,7 @@ git pull --ff-only
 
 通过原生 `statusLine.command` hook 驱动，从 stdin 接收 JSON，调用 Anthropic API 获取用量信息。
 
-**显示内容：** 模型名 | 推理努力 | Git 分支(+N -N) | ctx 使用率（context window） | 5h 限制 | 7d 限制 | extra 用量
+**显示内容：** 模型名 | 推理努力 | Git 分支(+N -N ?N，分别表示新增/删除/未跟踪文件数) | ctx 使用率（context window） | 5h 限制 | 7d 限制 | extra 用量
 
 **配置方式：** 在 Claude Code 对话中输入 `/statusline` 交互式管理，或手动编辑 `~/.claude/settings.json` 的 `env` 字段。
 
@@ -145,7 +145,7 @@ git pull --ff-only
 
 显示内容：
 
-- `compact`：模型名 | 推理努力 | ctx 使用率 | git 分支(+N -N) | 5h 剩余额度 | weekly 剩余额度（长周期额度）
+- `compact`：模型名 | 推理努力 | ctx 使用率 | git 分支(+N -N ?N) | 5h 剩余额度 | weekly 剩余额度（长周期额度）
 - `bars`：第 1 行 `repo@branch`，第 2 行 `model | eff | ctx`，第 3 / 4 行为 `5h` 和 `weekly` 进度条
 
 其中 `ctx` 是 context window 使用率，`weekly` 是长周期额度摘要；在窄宽度下会优先保留百分比，再按空间裁剪时间文本。

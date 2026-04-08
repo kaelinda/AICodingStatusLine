@@ -209,6 +209,21 @@ format_tokens() {
     fi
 }
 
+build_git_stat_summary() {
+    local summary=""
+    if [ "$git_added" -gt 0 ] || [ "$git_deleted" -gt 0 ]; then
+        summary="+${git_added} -${git_deleted}"
+    fi
+    if [ "$git_untracked" -gt 0 ]; then
+        if [ -n "$summary" ]; then
+            summary="${summary} ?${git_untracked}"
+        else
+            summary="?${git_untracked}"
+        fi
+    fi
+    printf "%s" "$summary"
+}
+
 usage_color() {
     local pct=$1
     if [ "$pct" -ge 90 ]; then
@@ -416,8 +431,14 @@ build_git_segment() {
     fi
     if [ "$show_git_diff" -eq 1 ] && [ -n "$git_stat" ]; then
         local added_part="${git_stat%% *}"
-        local deleted_part="${git_stat##* }"
-        SEG_TEXT+=" ${dim}(${reset}${green}${added_part}${reset} ${red}${deleted_part}${reset}${dim})${reset}"
+        local remain_part="${git_stat#* }"
+        local deleted_part="${remain_part%% *}"
+        local untracked_part="${remain_part#* }"
+        SEG_TEXT+=" ${dim}(${reset}${green}${added_part}${reset} ${red}${deleted_part}${reset}"
+        if [ -n "$untracked_part" ] && [ "$untracked_part" != "$remain_part" ]; then
+            SEG_TEXT+=" ${yellow}${untracked_part}${reset}"
+        fi
+        SEG_TEXT+="${dim})${reset}"
     fi
 }
 
@@ -806,15 +827,26 @@ fi
 display_dir=""
 git_branch=""
 git_stat=""
+git_added=0
+git_deleted=0
+git_untracked=0
 if [ -n "$cwd" ]; then
     display_dir="${cwd##*/}"
     git_branch=$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)
-    git_stat=$(
+    git_added=$(
         {
             git -C "${cwd}" diff --numstat 2>/dev/null
             git -C "${cwd}" diff --cached --numstat 2>/dev/null
-        } | awk '{if ($1 ~ /^[0-9]+$/) a+=$1; if ($2 ~ /^[0-9]+$/) d+=$2} END {if (a+d>0) printf "+%d -%d", a, d}'
+        } | awk '{if ($1 ~ /^[0-9]+$/) a+=$1} END {printf "%d", a+0}'
     )
+    git_deleted=$(
+        {
+            git -C "${cwd}" diff --numstat 2>/dev/null
+            git -C "${cwd}" diff --cached --numstat 2>/dev/null
+        } | awk '{if ($2 ~ /^[0-9]+$/) d+=$2} END {printf "%d", d+0}'
+    )
+    git_untracked=$(git -C "${cwd}" status --porcelain 2>/dev/null | awk 'BEGIN {u=0} /^\?\?/ {u++} END {printf "%d", u}')
+    git_stat=$(build_git_stat_summary)
 fi
 
 cache_file="/tmp/claude/statusline-usage-cache.json"
