@@ -354,6 +354,14 @@ class StatusLineTests(unittest.TestCase):
         output = self._run_shell(budget=130)
         self.assertNotRegex(output, r"\(\+\d+ -\d+\)")
 
+    def test_git_segment_compacts_nested_branch_name(self):
+        output = self._run_shell(budget=145)
+        self.assertIn("codex/.../for-claude", output)
+
+    def test_git_segment_uses_compact_path_prefix(self):
+        output = self._run_shell(budget=145)
+        self.assertRegex(output, r"\.\.\./clean-repo")
+
     def test_git_diff_appears_when_repo_is_dirty(self):
         repo_dir = Path(self.temp_dir.name) / "dirty-repo"
         repo_dir.mkdir()

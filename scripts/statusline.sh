@@ -184,6 +184,7 @@ strong="$branch"
 
 sep_plain=' | '
 sep_text=" ${dim}|${reset} "
+branch_glyph=' '
 default_seven_day_time_format='%m/%d %H:%M'
 short_seven_day_date_format='%m/%d'
 
@@ -300,6 +301,87 @@ truncate_middle() {
     printf "%s...%s" "${value:0:left_keep}" "${value:right_start}"
 }
 
+format_display_path() {
+    local raw_path="$1"
+    local normalized="$raw_path"
+    local leading=""
+    local parts=()
+    local filtered=()
+    local idx
+
+    if [ -n "$HOME" ]; then
+        if [ "$normalized" = "$HOME" ]; then
+            normalized="~"
+        elif [[ "$normalized" == "$HOME/"* ]]; then
+            normalized="~${normalized#$HOME}"
+        fi
+    fi
+
+    case "$normalized" in
+        "~")
+            printf "~"
+            return
+            ;;
+        "~/"*)
+            leading="~/"
+            normalized="${normalized#~/}"
+            ;;
+        "/")
+            printf "/"
+            return
+            ;;
+        /*)
+            leading="/"
+            normalized="${normalized#/}"
+            ;;
+    esac
+
+    IFS='/' read -r -a parts <<< "$normalized"
+    for idx in "${!parts[@]}"; do
+        [ -n "${parts[$idx]}" ] && filtered+=("${parts[$idx]}")
+    done
+
+    local count=${#filtered[@]}
+    if [ "$count" -eq 0 ]; then
+        printf "%s" "${leading%/}"
+        return
+    fi
+
+    if [ "$count" -le 2 ]; then
+        local joined=""
+        for idx in "${!filtered[@]}"; do
+            if [ "$idx" -gt 0 ]; then
+                joined+="/"
+            fi
+            joined+="${filtered[$idx]}"
+        done
+        printf "%s%s" "$leading" "$joined"
+        return
+    fi
+
+    printf "%s.../%s" "$leading" "${filtered[$(( count - 1 ))]}"
+}
+
+format_branch_name() {
+    local raw_branch="$1"
+    local parts=()
+    local filtered=()
+    local idx
+
+    IFS='/' read -r -a parts <<< "$raw_branch"
+    for idx in "${!parts[@]}"; do
+        [ -n "${parts[$idx]}" ] && filtered+=("${parts[$idx]}")
+    done
+
+    local count=${#filtered[@]}
+    if [ "$count" -le 2 ]; then
+        printf "%s" "$raw_branch"
+        return
+    fi
+
+    printf "%s/.../%s" "${filtered[0]}" "${filtered[$(( count - 1 ))]}"
+}
+
 add_segment() {
     segment_texts+=("$1")
     segment_plains+=("$2")
@@ -392,9 +474,14 @@ build_git_segment() {
         return
     fi
 
-    local base_plain="$display_dir"
+    local branch_display="$git_branch"
     if [ -n "$git_branch" ]; then
-        base_plain="${display_dir}@${git_branch}"
+        branch_display=$(format_branch_name "$git_branch")
+    fi
+
+    local base_plain="$display_dir"
+    if [ -n "$branch_display" ]; then
+        base_plain="${base_plain} ${branch_glyph}${branch_display}"
     fi
 
     if [ "$show_git_diff" -eq 1 ] && [ -n "$git_stat" ]; then
@@ -411,8 +498,8 @@ build_git_segment() {
 
     SEG_PLAIN="$base_plain"
     SEG_TEXT="${teal}${display_dir}${reset}"
-    if [ -n "$git_branch" ]; then
-        SEG_TEXT+="${dim}@${reset}${branch}${git_branch}${reset}"
+    if [ -n "$branch_display" ]; then
+        SEG_TEXT+=" ${dim}${branch_glyph}${reset}${branch}${branch_display}${reset}"
     fi
     if [ "$show_git_diff" -eq 1 ] && [ -n "$git_stat" ]; then
         local added_part="${git_stat%% *}"
@@ -807,7 +894,7 @@ display_dir=""
 git_branch=""
 git_stat=""
 if [ -n "$cwd" ]; then
-    display_dir="${cwd##*/}"
+    display_dir=$(format_display_path "$cwd")
     git_branch=$(git -C "${cwd}" rev-parse --abbrev-ref HEAD 2>/dev/null)
     git_stat=$(
         {

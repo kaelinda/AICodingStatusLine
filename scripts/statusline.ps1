@@ -177,6 +177,7 @@ $shortSevenDayDateFormat = "%m/%d"
 
 $sepPlain = " | "
 $sepText = " ${dim}|${reset} "
+$branchGlyph = "$([char]0xE0A0) "
 $includeUsageSummary = $true
 $outputText = $null
 
@@ -232,6 +233,48 @@ function Truncate-Middle([string]$value, [int]$limit) {
     $leftKeep = [math]::Floor(($limit - 3) / 2)
     $rightKeep = $limit - 3 - $leftKeep
     return $value.Substring(0, $leftKeep) + "..." + $value.Substring($value.Length - $rightKeep)
+}
+
+function Format-DisplayPath([string]$rawPath) {
+    if (-not $rawPath) { return $null }
+
+    $normalized = $rawPath
+    if ($env:HOME) {
+        if ($normalized -eq $env:HOME) {
+            $normalized = "~"
+        } elseif ($normalized.StartsWith("$($env:HOME)/")) {
+            $normalized = "~" + $normalized.Substring($env:HOME.Length)
+        }
+    }
+
+    if ($normalized -eq "~" -or $normalized -eq "/") { return $normalized }
+
+    $leading = ""
+    if ($normalized.StartsWith("~/")) {
+        $leading = "~/"
+        $normalized = $normalized.Substring(2)
+    } elseif ($normalized.StartsWith("/")) {
+        $leading = "/"
+        $normalized = $normalized.Substring(1)
+    }
+
+    $parts = @($normalized -split '/' | Where-Object { $_ })
+    if ($parts.Count -eq 0) { return $leading.TrimEnd('/') }
+
+    if ($parts.Count -le 2) {
+        return $leading + ($parts -join "/")
+    }
+
+    return "${leading}.../$($parts[-1])"
+}
+
+function Format-BranchName([string]$rawBranch) {
+    if (-not $rawBranch) { return $null }
+
+    $parts = @($rawBranch -split '/' | Where-Object { $_ })
+    if ($parts.Count -le 2) { return $rawBranch }
+
+    return "$($parts[0])/.../$($parts[-1])"
 }
 
 function Repeat-Char([string]$char, [int]$count) {
@@ -366,9 +409,10 @@ function Build-ModelSegment {
 function Build-GitSegment {
     if (-not $script:cwd) { return $null }
 
+    $branchDisplay = Format-BranchName $script:gitBranch
     $basePlain = $script:displayDir
-    if ($script:gitBranch) {
-        $basePlain = "$($script:displayDir)@$($script:gitBranch)"
+    if ($branchDisplay) {
+        $basePlain = "$basePlain $branchGlyph$branchDisplay"
     }
     if ($script:showGitDiff -and $script:gitStat) {
         $basePlain = "$basePlain ($($script:gitStat))"
@@ -380,8 +424,8 @@ function Build-GitSegment {
     }
 
     $text = "${teal}$($script:displayDir)${reset}"
-    if ($script:gitBranch) {
-        $text += "${dim}@${reset}${branch}$($script:gitBranch)${reset}"
+    if ($branchDisplay) {
+        $text += " ${dim}${branchGlyph}${reset}${branch}$branchDisplay${reset}"
     }
     if ($script:showGitDiff -and $script:gitStat) {
         $parts = $script:gitStat -split ' '
@@ -670,7 +714,7 @@ $displayDir = $null
 $gitBranch = $null
 $gitStat = $null
 if ($cwd) {
-    $displayDir = Split-Path $cwd -Leaf
+    $displayDir = Format-DisplayPath $cwd
     try { $gitBranch = git -C $cwd rev-parse --abbrev-ref HEAD 2>$null } catch {}
     $gitStat = Get-GitStat $cwd
 }
