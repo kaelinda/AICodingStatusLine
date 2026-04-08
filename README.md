@@ -101,6 +101,21 @@ git pull --ff-only
 
 如果你只想要官方内建 footer，用原生模式；如果你要多行进度条和速率限制展示，用 tmux 增强模式。
 
+### 在 Codex CLI 里怎么用（推荐流程）
+
+1. **先选模式并安装**（二选一）：
+   - 原生：`./install.sh --target codex-native`
+   - tmux 增强：`./install.sh --target codex`
+2. **启动 Codex**：
+   - 原生：直接执行 `codex`
+   - tmux 增强：执行 `codex-tmux`
+3. **确认状态栏生效**：
+   - 原生模式应出现 `model / context / cwd` 等段落
+   - tmux 模式应出现多行状态栏（`repo@branch`、`model|eff|ctx`、`5h/weekly`）
+4. **按需微调**：编辑 `~/.codex/config.toml` 的 `[statusline]`，修改主题、布局、进度条风格与显示行。
+
+> 如果你经常在不同项目间切换，建议先用 `compact + default`，稳定后再切到 `bars + dracula/monokai`。
+
 ### 原生模式
 
 安装：
@@ -342,6 +357,16 @@ bridge 当前会：
 | `CODEX_STATUSLINE_SHOW_GIT_LINE` / `show_git_line` | `true` | 第 1 行 `repo@branch` |
 | `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` / `show_overview_line` | `true` | 第 2 行 `model \| eff \| ctx` |
 
+### 显示效果（Codex tmux 增强模式）
+
+| 场景 | 你会看到什么 | 说明 |
+|------|--------------|------|
+| `compact` | `model \| eff \| ctx \| git \| 5h \| weekly` | 一行展示，适合窄终端和远程 SSH |
+| `bars` + `show_git_line=true` + `show_overview_line=true` | 第 1 行 `repo@branch`，第 2 行 `model\|eff\|ctx`，第 3/4 行 `5h`、`weekly` 进度条 | 信息最完整 |
+| `bars` + `show_git_line=false` | 不显示 `repo@branch` 行 | 适合仓库路径很长时 |
+| `bars` + `show_overview_line=false` | 不显示 `model\|eff\|ctx` 行 | 只关心额度时更简洁 |
+| `pct_mode=left` | `5h 92% left`、`weekly 81% left` | 看剩余更直观 |
+
 ### 截图对比
 
 **`dots` 风格：**
@@ -351,6 +376,10 @@ bridge 当前会：
 **`squares` 风格：**
 
 ![Bars Squares Screenshot](screenshot-squares.png)
+
+**默认综合效果（含模型、git、ctx、5h、7d、extra）：**
+
+![Default Screenshot](screenshot.png)
 
 ---
 
