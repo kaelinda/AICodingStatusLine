@@ -156,17 +156,19 @@ switch ($themeName) {
         $white  = "${esc}[38;2;253;232;239m"
     }
     default {
-        $accent = "${esc}[38;2;77;166;255m"
-        $teal   = "${esc}[38;2;77;175;176m"
-        $branch = "${esc}[38;2;196;208;212m"
-        $muted  = "${esc}[38;2;133;149;155m"
-        $red    = "${esc}[38;2;255;85;85m"
-        $orange = "${esc}[38;2;255;176;85m"
-        $yellow = "${esc}[38;2;230;200;0m"
-        $green  = "${esc}[38;2;0;160;0m"
-        $white  = "${esc}[38;2;228;232;234m"
+        $accent = "${esc}[38;2;96;165;250m"
+        $teal   = "${esc}[38;2;45;212;191m"
+        $branch = "${esc}[38;2;226;232;240m"
+        $muted  = "${esc}[38;2;148;163;184m"
+        $red    = "${esc}[38;2;248;113;113m"
+        $orange = "${esc}[38;2;251;146;60m"
+        $yellow = "${esc}[38;2;251;191;36m"
+        $green  = "${esc}[38;2;52;211;153m"
+        $white  = "${esc}[38;2;229;231;235m"
     }
 }
+$track  = "${esc}[38;2;71;85;105m"
+$bold   = "${esc}[1m"
 $dim    = "${esc}[2m"
 $reset  = "${esc}[0m"
 $primary = $white
@@ -394,7 +396,7 @@ function Build-GitSegment {
 function Build-CtxSegment {
     $pctColor = Get-UsageColor $script:pctUsed
     $plain = "ctx $($script:usedTokens)/$($script:totalTokens) $($script:pctUsed)%"
-    $text = "${dim}ctx${reset} ${primary}$($script:usedTokens)/$($script:totalTokens)${reset} ${pctColor}$($script:pctUsed)%${reset}"
+    $text = "${dim}ctx${reset} ${primary}$($script:usedTokens)/$($script:totalTokens)${reset} ${bold}${pctColor}$($script:pctUsed)%${reset}"
     return New-Segment $text $plain
 }
 
@@ -425,7 +427,7 @@ function Build-FiveHourSegment {
     $dispPct = Get-DisplayPct $script:fiveHourPct
     $suffix = Get-PctSuffix
     $plain = "5h ${dispPct}%${suffix}"
-    $text = "${dim}5h${reset} ${pctColor}${dispPct}%${suffix}${reset}"
+    $text = "${dim}5h${reset} ${bold}${pctColor}${dispPct}%${suffix}${reset}"
     if ($script:showFiveHourReset -and $script:fiveHourReset) {
         $plain += " $($script:fiveHourReset)"
         $text += " ${secondary}$($script:fiveHourReset)${reset}"
@@ -442,7 +444,7 @@ function Build-SevenDaySegment {
     $dispPct = Get-DisplayPct $script:sevenDayPct
     $suffix = Get-PctSuffix
     $plain = "7d ${dispPct}%${suffix}"
-    $text = "${dim}7d${reset} ${pctColor}${dispPct}%${suffix}${reset}"
+    $text = "${dim}7d${reset} ${bold}${pctColor}${dispPct}%${suffix}${reset}"
     if ($script:showSevenDayReset -and $script:sevenDayReset) {
         $plain += " $($script:sevenDayReset)"
         $text += " ${secondary}$($script:sevenDayReset)${reset}"
@@ -558,8 +560,9 @@ function Build-UsageBarLine([string]$label, [int]$pctValue, [string]$pctText, [s
         $filledText = "${pctColor}${filledPlain}${reset}"
     }
 
+    $labelColor = if ($label -eq "7d") { $accent } else { $teal }
     $plain = "$label $pctText [$filledPlain$emptyPlain]"
-    $text = "${dim}${label}${reset} ${pctColor}${pctText}${reset} ${dim}[${reset}${filledText}${secondary}${emptyPlain}${reset}${dim}]${reset}"
+    $text = "${labelColor}${label}${reset} ${bold}${pctColor}${pctText}${reset} ${dim}[${reset}${filledText}${track}${emptyPlain}${reset}${dim}]${reset}"
     if ($timeText) {
         $plain += " $timeText"
         $text += "${timeColor}$timeText${reset}"

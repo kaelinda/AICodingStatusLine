@@ -31,6 +31,7 @@ fi
 
 config_file="$HOME/.codex/config.toml"
 session_base="${CODEX_STATUSLINE_SESSION_DIR:-$HOME/.codex/sessions}"
+session_file_override="${CODEX_STATUSLINE_SESSION_FILE:-}"
 theme_name="${CODEX_STATUSLINE_THEME:-$(statusline_toml_get "$config_file" theme default)}"
 layout_name="${CODEX_STATUSLINE_LAYOUT:-$(statusline_toml_get "$config_file" layout bars)}"
 bar_style_name="${CODEX_STATUSLINE_BAR_STYLE:-$(statusline_toml_get "$config_file" bar_style ascii)}"
@@ -50,9 +51,11 @@ case "$layout_name" in
     bars|compact) ;;
     *) layout_name="bars" ;;
 esac
-segments_raw="${CODEX_STATUSLINE_SEGMENTS:-}"
+segments_raw="${CODEX_STATUSLINE_SEGMENTS:-$(statusline_toml_get "$config_file" segments "")}"
 segments_filter_active=0
 segments_csv=""
+default_segment_order_csv="model,eff,ctx,git,5h,7d,hook,notify,buddy"
+ordered_segments=()
 if [ -n "$segments_raw" ]; then
     segments_filter_active=1
     segments_csv=",$(printf '%s' "$segments_raw" | tr -d '[:space:]'),"
@@ -61,6 +64,35 @@ segment_enabled() {
     [ "$segments_filter_active" -eq 0 ] && return 0
     case "$segments_csv" in *,"$1",*) return 0 ;; esac
     return 1
+}
+append_segment_order() {
+    local segment_name="$1"
+    local existing_segment
+
+    for existing_segment in "${ordered_segments[@]}"; do
+        [ "$existing_segment" = "$segment_name" ] && return 0
+    done
+
+    ordered_segments+=("$segment_name")
+}
+
+initialize_segment_order() {
+    local raw_item segment_name
+
+    ordered_segments=()
+
+    for raw_item in $(printf '%s' "${segments_raw:-$default_segment_order_csv}" | tr ',' ' '); do
+        segment_name=$(printf '%s' "$raw_item" | tr -d '[:space:]')
+        case "$segment_name" in
+            model|eff|ctx|git|5h|7d|hook|notify|buddy)
+                append_segment_order "$segment_name"
+                ;;
+        esac
+    done
+
+    for raw_item in $(printf '%s' "$default_segment_order_csv" | tr ',' ' '); do
+        append_segment_order "$raw_item"
+    done
 }
 case "$bar_style_name" in
     dots)
@@ -111,8 +143,10 @@ case "$theme_name" in
     sunset)    _accent="255;138;101" _teal="255;183;77" _branch="255;204;128" _muted="167;140;127" _red="239;83;80" _orange="255;112;66" _yellow="255;213;79" _green="174;213;129" _white="255;243;224" ;;
     amber)     _accent="255;193;7" _teal="220;184;106" _branch="240;230;200" _muted="158;148;119" _red="232;98;92" _orange="232;152;62" _yellow="212;170;50" _green="140;179;105" _white="245;240;224" ;;
     rose)      _accent="244;143;177" _teal="206;147;216" _branch="248;215;224" _muted="173;139;159" _red="239;83;80" _orange="255;138;101" _yellow="255;213;79" _green="165;214;167" _white="253;232;239" ;;
-    *)         _accent="77;166;255" _teal="77;175;176" _branch="196;208;212" _muted="133;149;155" _red="255;85;85" _orange="255;176;85" _yellow="230;200;0" _green="0;160;0" _white="228;232;234" ;;
+    *)         _accent="96;165;250" _teal="45;212;191" _branch="226;232;240" _muted="148;163;184" _red="248;113;113" _orange="251;146;60" _yellow="251;191;36" _green="52;211;153" _white="229;231;235" ;;
 esac
+
+_track="71;85;105"
 
 # Convert R;G;B triplets to output format
 _rgb_to_hex() {
@@ -130,6 +164,8 @@ if [ "$output_format" = "tmux" ]; then
     yellow="#[fg=$(_rgb_to_hex "$_yellow")]"
     green="#[fg=$(_rgb_to_hex "$_green")]"
     white="#[fg=$(_rgb_to_hex "$_white")]"
+    track="#[fg=$(_rgb_to_hex "$_track")]"
+    bold='#[bold]'
     dim='#[dim]'
     reset='#[default]'
 else
@@ -142,6 +178,8 @@ else
     yellow="\033[38;2;${_yellow}m"
     green="\033[38;2;${_green}m"
     white="\033[38;2;${_white}m"
+    track="\033[38;2;${_track}m"
+    bold='\033[1m'
     dim='\033[2m'
     reset='\033[0m'
 fi
@@ -203,13 +241,60 @@ resolve_two_week_time_format() {
 }
 
 find_latest_session() {
+    if [ -n "$session_file_override" ] && [ -f "$session_file_override" ]; then
+        printf '%s\n' "$session_file_override"
+        return 0
+    fi
+
     find "$session_base" -name "*.jsonl" -type f 2>/dev/null | sort -r | head -1
 }
 
 find_latest_token_count_line_in_file() {
     local session_file="$1"
+    local preferred_line latest_line candidate
+    local preferred_limit_id="${CODEX_STATUSLINE_PRIMARY_LIMIT_ID:-codex}"
 
     [ -z "$session_file" ] && return 1
+
+    if command -v jq >/dev/null 2>&1; then
+        if command -v tac >/dev/null 2>&1; then
+            while IFS= read -r candidate; do
+                [[ "$candidate" == *'"token_count"'* ]] || continue
+                if [ -z "$latest_line" ]; then
+                    latest_line="$candidate"
+                fi
+                if printf '%s' "$candidate" | jq -e --arg preferred_limit_id "$preferred_limit_id" \
+                    '.payload.rate_limits.limit_id == $preferred_limit_id' >/dev/null 2>&1; then
+                    preferred_line="$candidate"
+                    break
+                fi
+            done < <(tac "$session_file")
+        else
+            while IFS= read -r candidate; do
+                [[ "$candidate" == *'"token_count"'* ]] || continue
+                if [ -z "$latest_line" ]; then
+                    latest_line="$candidate"
+                fi
+                if printf '%s' "$candidate" | jq -e --arg preferred_limit_id "$preferred_limit_id" \
+                    '.payload.rate_limits.limit_id == $preferred_limit_id' >/dev/null 2>&1; then
+                    preferred_line="$candidate"
+                    break
+                fi
+            done < <(tail -r "$session_file" 2>/dev/null)
+        fi
+
+        if [ -n "$preferred_line" ]; then
+            printf '%s\n' "$preferred_line"
+            return 0
+        fi
+
+        if [ -n "$latest_line" ]; then
+            printf '%s\n' "$latest_line"
+            return 0
+        fi
+
+        return 1
+    fi
 
     if command -v tac >/dev/null 2>&1; then
         tac "$session_file" | grep -m1 '"token_count"'
@@ -295,6 +380,30 @@ read_notify_state() {
     jq -r '.summary // .message // empty' "$cache_file" 2>/dev/null
 }
 
+read_buddy_state() {
+    local cache_file="${CODEX_STATUSLINE_BUDDY_CACHE_FILE:-/tmp/codex/statusline-buddy-cache.json}"
+    local cache_ttl="${CODEX_STATUSLINE_BUDDY_TTL:-600}"
+    local updated_at now_epoch
+
+    [ "$show_buddy_segment" -eq 1 ] || return 1
+    [ -f "$cache_file" ] || return 1
+    command -v jq >/dev/null 2>&1 || return 1
+
+    updated_at=$(jq -r '.updated_at // 0' "$cache_file" 2>/dev/null)
+    [[ "$updated_at" =~ ^[0-9]+$ ]] || return 1
+
+    now_epoch=$(resolve_now_epoch)
+    if [ $(( now_epoch - updated_at )) -gt "$cache_ttl" ] 2>/dev/null; then
+        return 1
+    fi
+
+    jq -c '{
+        status: (.status // ""),
+        summary: (.summary // ""),
+        source: (.source // "")
+    }' "$cache_file" 2>/dev/null
+}
+
 parse_token_count_line() {
     local line="$1"
 
@@ -373,27 +482,37 @@ write_last_known_limits() {
 parse_session_data() {
     local cache_file="${CODEX_STATUSLINE_CACHE_FILE:-/tmp/codex/statusline-session-cache.json}"
     local cache_max_age=10
+    local configured_refresh_interval
     local limits_cache_file
+    local selected_session_file
+    configured_refresh_interval=$(statusline_resolve_positive_int_setting "${CODEX_STATUSLINE_REFRESH_INTERVAL:-$(statusline_toml_get "$config_file" refresh_interval "")}" "")
+    [ -n "$configured_refresh_interval" ] && cache_max_age="$configured_refresh_interval"
     mkdir -p /tmp/codex
     limits_cache_file=$(resolve_limits_cache_file "$cache_file")
+    selected_session_file=$(find_latest_session)
+    [ -n "$selected_session_file" ] || return 1
 
     if [ -f "$cache_file" ]; then
-        local mtime now age
+        local mtime now age cached_session_file
         mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null)
         now=$(date +%s)
         age=$(( now - mtime ))
         if [ "$age" -lt "$cache_max_age" ]; then
-            cat "$cache_file"
-            return 0
+            if [ -n "$session_file_override" ] && command -v jq >/dev/null 2>&1; then
+                cached_session_file=$(jq -r '.session_file // empty' "$cache_file" 2>/dev/null)
+                if [ "$cached_session_file" = "$selected_session_file" ]; then
+                    cat "$cache_file"
+                    return 0
+                fi
+            else
+                cat "$cache_file"
+                return 0
+            fi
         fi
     fi
 
-    local session_file
-    session_file=$(find_latest_session)
-    [ -z "$session_file" ] && return 1
-
     local line
-    line=$(find_latest_token_count_line_in_file "$session_file")
+    line=$(find_latest_token_count_line_in_file "$selected_session_file")
     [ -z "$line" ] && return 1
 
     if ! command -v jq >/dev/null 2>&1; then
@@ -404,6 +523,10 @@ parse_session_data() {
     local now_epoch
     parsed=$(parse_token_count_line "$line")
     now_epoch=$(date +%s)
+
+    if [ -n "$parsed" ]; then
+        parsed=$(printf '%s' "$parsed" | jq -c --arg session_file "$selected_session_file" '. + {session_file: $session_file}' 2>/dev/null)
+    fi
 
     if [ -n "$parsed" ] && [ "$(printf '%s' "$parsed" | jq -r '.has_limits')" = "true" ]; then
         write_last_known_limits "$limits_cache_file" "$parsed" "$now_epoch" || true
@@ -610,6 +733,129 @@ repeat_char() {
     printf "%s" "$result"
 }
 
+buddy_status_label() {
+    case "$1" in
+        idle) printf "idle" ;;
+        ok) printf "ok" ;;
+        done) printf "done" ;;
+        blocked) printf "blocked" ;;
+        needs_input|needs-input|need_input) printf "needs input" ;;
+        *)
+            if [ -n "$1" ]; then
+                printf "%s" "${1//_/ }"
+            fi
+            ;;
+    esac
+}
+
+buddy_status_color() {
+    case "$1" in
+        idle) printf "%s" "$secondary" ;;
+        ok) printf "%s" "$green" ;;
+        done) printf "%s" "$teal" ;;
+        blocked) printf "%s" "$red" ;;
+        needs_input|needs-input|need_input) printf "%s" "$orange" ;;
+        *) printf "%s" "$accent" ;;
+    esac
+}
+
+build_buddy_slot_segment() {
+    local max_width="$1"
+    local include_summary="${2:-1}"
+    local label="buddy ${buddy_status_text}"
+    local status_color prefix_text remaining summary_text
+
+    SEG_PLAIN=""
+    SEG_TEXT=""
+
+    [ -n "$buddy_status_text" ] || return
+    [ "$max_width" -gt 0 ] 2>/dev/null || return
+
+    status_color=$(buddy_status_color "$buddy_status")
+    prefix_text="${dim}buddy${reset} ${status_color}${buddy_status_text}${reset}"
+
+    SEG_PLAIN="$label"
+    SEG_TEXT="$prefix_text"
+
+    if [ "$include_summary" -ne 1 ] || [ -z "$buddy_summary" ]; then
+        return
+    fi
+
+    remaining=$(( max_width - ${#label} - 1 ))
+    if [ "$remaining" -lt 8 ] 2>/dev/null; then
+        return
+    fi
+
+    summary_text="$buddy_summary"
+    if [ ${#summary_text} -gt "$remaining" ]; then
+        summary_text=$(truncate_middle "$summary_text" "$remaining")
+    fi
+
+    SEG_PLAIN+=" ${summary_text}"
+    SEG_TEXT+=" ${secondary}${summary_text}${reset}"
+}
+
+compose_overview_left_segments() {
+    local include_eff_segment="${1:-1}"
+    local include_hook_overview="${2:-1}"
+    local include_notify_overview="${3:-1}"
+    local segment_name
+    segment_texts=()
+    segment_plains=()
+
+    for segment_name in "${ordered_segments[@]}"; do
+        case "$segment_name" in
+            model)
+                segment_enabled "model" || continue
+                build_model_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            eff)
+                [ "$include_eff_segment" -eq 1 ] || continue
+                segment_enabled "eff" || continue
+                build_eff_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            ctx)
+                segment_enabled "ctx" || continue
+                build_ctx_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            hook)
+                [ "$include_hook_overview" -eq 1 ] || continue
+                [ "$show_hook_segment" -eq 1 ] || continue
+                segment_enabled "hook" || continue
+                build_hook_segment
+                if [ -n "$SEG_PLAIN" ]; then
+                    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                fi
+                ;;
+            notify)
+                [ "$include_notify_overview" -eq 1 ] || continue
+                [ "$show_notify_segment" -eq 1 ] || continue
+                segment_enabled "notify" || continue
+                build_notify_segment
+                if [ -n "$SEG_PLAIN" ]; then
+                    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                fi
+                ;;
+        esac
+    done
+
+    COMPOSED_TEXT=""
+    COMPOSED_PLAIN=""
+    local idx
+    for idx in "${!segment_texts[@]}"; do
+        if [ "$idx" -gt 0 ]; then
+            COMPOSED_TEXT+="$sep_text"
+            COMPOSED_PLAIN+="$sep_plain"
+        fi
+        COMPOSED_TEXT+="${segment_texts[$idx]}"
+        COMPOSED_PLAIN+="${segment_plains[$idx]}"
+    done
+    COMPOSED_LEN=${#COMPOSED_PLAIN}
+}
+
 # ── Segment builders ─────────────────────────────────────────────
 
 build_model_segment() {
@@ -661,7 +907,7 @@ build_ctx_segment() {
     local pct_color
     pct_color=$(usage_color "$pct_used")
     SEG_PLAIN="ctx ${used_tokens}/${total_tokens} ${pct_used}%"
-    SEG_TEXT="${dim}ctx${reset} ${primary}${used_tokens}/${total_tokens}${reset} ${pct_color}${pct_used}%${reset}"
+    SEG_TEXT="${dim}ctx${reset} ${primary}${used_tokens}/${total_tokens}${reset} ${bold}${pct_color}${pct_used}%${reset}"
 }
 
 build_hook_segment() {
@@ -688,6 +934,15 @@ build_notify_segment() {
 
     SEG_PLAIN="notify ${summary_text}"
     SEG_TEXT="${dim}notify${reset} ${teal}${summary_text}${reset}"
+}
+
+build_buddy_segment() {
+    SEG_PLAIN=""
+    SEG_TEXT=""
+
+    [ -n "$buddy_status_text" ] || return
+
+    build_buddy_slot_segment 36 1
 }
 
 build_eff_segment() {
@@ -722,7 +977,7 @@ build_five_hour_segment() {
     pct_text="${five_hour_remaining_pct}% left"
     pct_color=$(remaining_color "$five_hour_remaining_pct")
     SEG_PLAIN="5h ${pct_text}"
-    SEG_TEXT="${dim}5h${reset} ${pct_color}${pct_text}${reset}"
+    SEG_TEXT="${dim}5h${reset} ${bold}${pct_color}${pct_text}${reset}"
     if [ "$show_five_hour_reset" -eq 1 ] && [ -n "$five_hour_reset" ]; then
         SEG_PLAIN+=" ${five_hour_reset}"
         SEG_TEXT+=" ${secondary}${five_hour_reset}${reset}"
@@ -740,7 +995,7 @@ build_seven_day_segment() {
     pct_text="${seven_day_remaining_pct}% left"
     pct_color=$(remaining_color "$seven_day_remaining_pct")
     SEG_PLAIN="${weekly_label} ${pct_text}"
-    SEG_TEXT="${dim}${weekly_label}${reset} ${pct_color}${pct_text}${reset}"
+    SEG_TEXT="${dim}${weekly_label}${reset} ${bold}${pct_color}${pct_text}${reset}"
     if [ "$show_seven_day_reset" -eq 1 ] && [ -n "$seven_day_reset" ]; then
         SEG_PLAIN+=" ${seven_day_reset}"
         SEG_TEXT+=" ${secondary}${seven_day_reset}${reset}"
@@ -754,72 +1009,91 @@ compose_segments() {
     local include_branch_segment="${2:-1}"
     local include_usage_segments="${3:-1}"
     local include_git_diff_segment="${4:-1}"
+    local include_buddy_segment="${5:-1}"
+    local segment_name
     segment_texts=()
     segment_plains=()
     BRANCH_SEGMENT_LEN=0
 
-    if segment_enabled "model"; then
-        build_model_segment
-        add_segment "$SEG_TEXT" "$SEG_PLAIN"
-    fi
-
-    if segment_enabled "eff"; then
-        build_eff_segment
-        add_segment "$SEG_TEXT" "$SEG_PLAIN"
-    fi
-
-    if segment_enabled "ctx"; then
-        build_ctx_segment
-        add_segment "$SEG_TEXT" "$SEG_PLAIN"
-    fi
-
-    if [ "$show_hook_segment" -eq 1 ] && segment_enabled "hook"; then
-        build_hook_segment
-        if [ -n "$SEG_PLAIN" ]; then
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-    fi
-
-    if [ "$show_notify_segment" -eq 1 ] && segment_enabled "notify"; then
-        build_notify_segment
-        if [ -n "$SEG_PLAIN" ]; then
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-    fi
-
-    if [ "$include_repo_segment" -eq 1 ] && segment_enabled "git"; then
-        build_repo_segment
-        if [ -n "$SEG_PLAIN" ]; then
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-    fi
-
-    if [ "$include_branch_segment" -eq 1 ] && segment_enabled "git"; then
-        build_branch_segment
-        if [ -n "$SEG_PLAIN" ]; then
-            BRANCH_SEGMENT_LEN=${#SEG_PLAIN}
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-
-        if [ "$include_git_diff_segment" -eq 1 ]; then
-            build_git_diff_segment
-            if [ -n "$SEG_PLAIN" ]; then
+    for segment_name in "${ordered_segments[@]}"; do
+        case "$segment_name" in
+            model)
+                segment_enabled "model" || continue
+                build_model_segment
                 add_segment "$SEG_TEXT" "$SEG_PLAIN"
-            fi
-        fi
-    fi
-
-    if [ "$include_usage_segments" -eq 1 ]; then
-        if segment_enabled "5h"; then
-            build_five_hour_segment
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-
-        if [ "$show_seven_day" -eq 1 ] && segment_enabled "7d"; then
-            build_seven_day_segment
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-    fi
+                ;;
+            eff)
+                segment_enabled "eff" || continue
+                build_eff_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            ctx)
+                segment_enabled "ctx" || continue
+                build_ctx_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            hook)
+                [ "$show_hook_segment" -eq 1 ] || continue
+                segment_enabled "hook" || continue
+                build_hook_segment
+                if [ -n "$SEG_PLAIN" ]; then
+                    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                fi
+                ;;
+            notify)
+                [ "$show_notify_segment" -eq 1 ] || continue
+                segment_enabled "notify" || continue
+                build_notify_segment
+                if [ -n "$SEG_PLAIN" ]; then
+                    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                fi
+                ;;
+            buddy)
+                [ "$include_buddy_segment" -eq 1 ] || continue
+                [ "$show_buddy_segment" -eq 1 ] || continue
+                segment_enabled "buddy" || continue
+                build_buddy_segment
+                if [ -n "$SEG_PLAIN" ]; then
+                    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                fi
+                ;;
+            git)
+                segment_enabled "git" || continue
+                if [ "$include_repo_segment" -eq 1 ]; then
+                    build_repo_segment
+                    if [ -n "$SEG_PLAIN" ]; then
+                        add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                    fi
+                fi
+                if [ "$include_branch_segment" -eq 1 ]; then
+                    build_branch_segment
+                    if [ -n "$SEG_PLAIN" ]; then
+                        BRANCH_SEGMENT_LEN=${#SEG_PLAIN}
+                        add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                    fi
+                    if [ "$include_git_diff_segment" -eq 1 ]; then
+                        build_git_diff_segment
+                        if [ -n "$SEG_PLAIN" ]; then
+                            add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                        fi
+                    fi
+                fi
+                ;;
+            5h)
+                [ "$include_usage_segments" -eq 1 ] || continue
+                segment_enabled "5h" || continue
+                build_five_hour_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            7d)
+                [ "$include_usage_segments" -eq 1 ] || continue
+                [ "$show_seven_day" -eq 1 ] || continue
+                segment_enabled "7d" || continue
+                build_seven_day_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+        esac
+    done
 
     COMPOSED_TEXT=""
     COMPOSED_PLAIN=""
@@ -911,9 +1185,80 @@ render_bars_overview_output() {
 }
 
 build_bars_overview_line() {
-    compose_segments 0 0 0 0
-    LINE_PLAIN="$COMPOSED_PLAIN"
-    LINE_TEXT="$COMPOSED_TEXT"
+    local include_eff_segment=1
+    local include_hook_overview=1
+    local include_notify_overview=1
+    local buddy_min_plain buddy_min_text buddy_right_plain buddy_right_text
+    local left_plain left_text left_budget gap_width truncated_left
+
+    compose_overview_left_segments "$include_eff_segment" "$include_hook_overview" "$include_notify_overview"
+    left_plain="$COMPOSED_PLAIN"
+    left_text="$COMPOSED_TEXT"
+
+    if [ "$show_buddy_segment" -ne 1 ] || ! segment_enabled "buddy" || [ -z "$buddy_status_text" ]; then
+        LINE_PLAIN="$left_plain"
+        LINE_TEXT="$left_text"
+        return
+    fi
+
+    build_buddy_slot_segment "$max_width" 0
+    buddy_min_plain="$SEG_PLAIN"
+    buddy_min_text="$SEG_TEXT"
+
+    if [ -z "$buddy_min_plain" ]; then
+        LINE_PLAIN="$left_plain"
+        LINE_TEXT="$left_text"
+        return
+    fi
+
+    left_budget=$(( max_width - 2 - ${#buddy_min_plain} ))
+    if [ "$left_budget" -lt 0 ]; then
+        left_budget=0
+    fi
+
+    if [ ${#left_plain} -gt "$left_budget" ] && [ "$include_notify_overview" -eq 1 ]; then
+        include_notify_overview=0
+        compose_overview_left_segments "$include_eff_segment" "$include_hook_overview" "$include_notify_overview"
+        left_plain="$COMPOSED_PLAIN"
+        left_text="$COMPOSED_TEXT"
+    fi
+
+    if [ ${#left_plain} -gt "$left_budget" ] && [ "$include_hook_overview" -eq 1 ]; then
+        include_hook_overview=0
+        compose_overview_left_segments "$include_eff_segment" "$include_hook_overview" "$include_notify_overview"
+        left_plain="$COMPOSED_PLAIN"
+        left_text="$COMPOSED_TEXT"
+    fi
+
+    if [ ${#left_plain} -gt "$left_budget" ] && [ "$include_eff_segment" -eq 1 ]; then
+        include_eff_segment=0
+        compose_overview_left_segments "$include_eff_segment" "$include_hook_overview" "$include_notify_overview"
+        left_plain="$COMPOSED_PLAIN"
+        left_text="$COMPOSED_TEXT"
+    fi
+
+    if [ ${#left_plain} -gt "$left_budget" ]; then
+        truncated_left=$(truncate_middle "$left_plain" "$left_budget")
+        left_plain="$truncated_left"
+        left_text="${secondary}${truncated_left}${reset}"
+    fi
+
+    build_buddy_slot_segment "$(( max_width - 2 - ${#left_plain} ))" 1
+    buddy_right_plain="$SEG_PLAIN"
+    buddy_right_text="$SEG_TEXT"
+
+    if [ -z "$buddy_right_plain" ]; then
+        buddy_right_plain="$buddy_min_plain"
+        buddy_right_text="$buddy_min_text"
+    fi
+
+    gap_width=$(( max_width - ${#left_plain} - ${#buddy_right_plain} ))
+    if [ "$gap_width" -lt 2 ]; then
+        gap_width=2
+    fi
+
+    LINE_PLAIN="${left_plain}$(repeat_char "$gap_width" " ")${buddy_right_plain}"
+    LINE_TEXT="${left_text}$(repeat_char "$gap_width" " ")${buddy_right_text}"
 }
 
 build_usage_bar_line() {
@@ -961,7 +1306,7 @@ build_usage_bar_line() {
     fi
     local empty_width=$(( bar_width - filled_width ))
 
-    local filled_plain empty_plain filled_text pct_color time_color
+    local filled_plain empty_plain filled_text pct_color time_color label_color
     filled_plain=$(repeat_char "$filled_width" "$bar_filled_char")
     empty_plain=$(repeat_char "$empty_width" "$bar_empty_char")
 
@@ -974,9 +1319,11 @@ build_usage_bar_line() {
         time_color="$secondary"
         filled_text="${pct_color}${filled_plain}${reset}"
     fi
+    label_color="$teal"
+    [ "$label" = "$weekly_label" ] && label_color="$accent"
 
     LINE_PLAIN="${label} ${pct_text} [${filled_plain}${empty_plain}]"
-    LINE_TEXT="${dim}${label}${reset} ${pct_color}${pct_text}${reset} ${dim}[${reset}${filled_text}${secondary}${empty_plain}${reset}${dim}]${reset}"
+    LINE_TEXT="${label_color}${label}${reset} ${bold}${pct_color}${pct_text}${reset} ${dim}[${reset}${filled_text}${track}${empty_plain}${reset}${dim}]${reset}"
 
     if [ -n "$time_text" ]; then
         LINE_PLAIN+=" ${time_text}"
@@ -1056,6 +1403,8 @@ show_bars_git_line=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_GI
 show_bars_overview_line=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_OVERVIEW_LINE:-$(statusline_toml_get "$config_file" show_overview_line "")}" "1")
 show_hook_segment=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_HOOK_SEGMENT:-$(statusline_toml_get "$config_file" show_hook_segment "")}" "0")
 show_notify_segment=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_NOTIFY_SEGMENT:-$(statusline_toml_get "$config_file" show_notify_segment "")}" "0")
+show_buddy_segment=$(statusline_resolve_bool_setting "${CODEX_STATUSLINE_SHOW_BUDDY_SEGMENT:-$(statusline_toml_get "$config_file" show_buddy_segment "")}" "0")
+initialize_segment_order
 
 display_dir="${target_dir##*/}"
 git_branch=""
@@ -1144,6 +1493,15 @@ fi
 
 hook_summary="$(read_hook_state 2>/dev/null || true)"
 notify_summary="$(read_notify_state 2>/dev/null || true)"
+buddy_state="$(read_buddy_state 2>/dev/null || true)"
+buddy_status=""
+buddy_status_text=""
+buddy_summary=""
+if [ -n "$buddy_state" ]; then
+    buddy_status=$(printf '%s' "$buddy_state" | jq -r '.status // empty' 2>/dev/null)
+    buddy_status_text=$(buddy_status_label "$buddy_status")
+    buddy_summary=$(printf '%s' "$buddy_state" | jq -r '.summary // empty' 2>/dev/null)
+fi
 
 [ -n "$git_stat" ] && show_git_diff=1
 max_width=$(get_max_width)

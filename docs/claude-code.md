@@ -35,9 +35,11 @@ cd AICodingStatusLine
 # 查看帮助
 ./install.sh --help
 
-# 卸载
-./install.sh --uninstall
+# 只卸载 Claude Code 状态栏
+./install.sh --uninstall --target claude
 ```
+
+> `./install.sh --uninstall` 不带 `--target` 时会按兼容模式全局清理 Claude Code 和 Codex；只管理 Claude 时请使用 `--uninstall --target claude`。
 
 ### 方式二：让 Claude 帮你装
 

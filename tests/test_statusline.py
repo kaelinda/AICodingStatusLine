@@ -10,6 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SHELL_SCRIPT = ROOT / "scripts" / "statusline.sh"
+STATUSLINE_CLI_SCRIPT = ROOT / "scripts" / "statusline_cli.sh"
+CODEX_STATUSLINE_CLI_SCRIPT = ROOT / "scripts" / "codex_statusline_cli.sh"
 PS_SCRIPT = ROOT / "scripts" / "statusline.ps1"
 INSTALL_SCRIPT = ROOT / "install.sh"
 TMUX_LAUNCHER_SCRIPT = ROOT / "scripts" / "codex_tmux.sh"
@@ -19,7 +21,7 @@ HOOK_SIDECAR_SCRIPT = ROOT / "scripts" / "codex_hook_sidecar.sh"
 NOTIFY_BRIDGE_SCRIPT = ROOT / "scripts" / "codex_notify_bridge.sh"
 ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 DOTS_BAR_RE = r"[\u25cf\u25cb]+"
-DEFAULT_SECONDARY_ANSI = "[38;2;133;149;155m"
+DEFAULT_SECONDARY_ANSI = "[38;2;148;163;184m"
 DRACULA_SECONDARY_ANSI = "[38;2;132;145;182m"
 DEFAULT_7D_TIME = "03/06 08:00"
 DEFAULT_7D_SHORT_DATE = "03/06"
@@ -32,9 +34,12 @@ CODEX_WEEKLY_LEFT = 96
 CODEX_TMUX_LAUNCHER_NAME = "codex-tmux"
 CODEX_TMUX_STATUS_NAME = "codex-tmux-status"
 CODEX_STATUSLINE_NAME = "codex-statusline"
-CODEX_STATUSLINE_COMMON_NAME = "codex-statusline-common.sh"
+CODEX_STATUSLINE_CONFIG_NAME = "codex-statusline-config"
+CODEX_STATUSLINE_COMMON_NAME = "codex_statusline_common.sh"
+CODEX_STATUSLINE_COMMON_COMPAT_NAME = "codex-statusline-common.sh"
 CODEX_HOOK_SIDECAR_NAME = "codex-hook-sidecar"
 CODEX_NOTIFY_BRIDGE_NAME = "codex-notify-bridge"
+CODEX_BUDDY_STATUS_NAME = "buddy"
 
 # Simulated Codex session JSONL token_count event
 CODEX_TOKEN_COUNT_EVENT = {
@@ -200,6 +205,28 @@ class StatusLineTests(unittest.TestCase):
     def _write_usage(self, payload) -> None:
         self.usage_cache.write_text(json.dumps(payload))
 
+    def _write_claude_settings(self, payload=None) -> Path:
+        settings_dir = self.cache_home / ".claude"
+        settings_dir.mkdir(parents=True, exist_ok=True)
+        settings_file = settings_dir / "settings.json"
+        settings_file.write_text(json.dumps(payload or {"env": {}}, indent=2))
+        return settings_file
+
+    def _run_statusline_cli(self, *args, input_text=None):
+        env = os.environ.copy()
+        env["HOME"] = str(self.cache_home)
+
+        result = subprocess.run(
+            ["/bin/bash", str(STATUSLINE_CLI_SCRIPT), *args],
+            input=input_text,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=ROOT,
+            check=True,
+        )
+        return result.stdout
+
     def _run_shell(self, budget=None, usage=True, cwd=None, raw=False, extra_env=None, layout="compact"):
         env = os.environ.copy()
         env["HOME"] = str(self.cache_home)
@@ -239,7 +266,7 @@ class StatusLineTests(unittest.TestCase):
         )
         return result.stdout if raw else strip_ansi(result.stdout)
 
-    def _run_install(self, *args, home=None):
+    def _run_install(self, *args, home=None, stdin_text=None):
         env = os.environ.copy()
         install_home = Path(home) if home is not None else Path(self.temp_dir.name) / "install-home"
         install_home.mkdir(parents=True, exist_ok=True)
@@ -247,6 +274,7 @@ class StatusLineTests(unittest.TestCase):
 
         result = subprocess.run(
             ["/bin/bash", str(INSTALL_SCRIPT), *args],
+            input=stdin_text,
             capture_output=True,
             text=True,
             env=env,
@@ -387,7 +415,7 @@ class StatusLineTests(unittest.TestCase):
             extra_env={"CLAUDE_CODE_STATUSLINE_THEME": "forest"},
         )
 
-        self.assertIn("[38;2;77;166;255m", default_raw)
+        self.assertIn("[38;2;96;165;250m", default_raw)
         self.assertIn("[38;2;120;196;120m", forest_raw)
         self.assertEqual(strip_ansi(default_raw), strip_ansi(forest_raw))
 
@@ -576,7 +604,7 @@ class StatusLineTests(unittest.TestCase):
             },
         )
 
-        self.assertIn("[38;2;77;166;255m", default_raw)
+        self.assertIn("[38;2;96;165;250m", default_raw)
         self.assertIn("[38;2;120;196;120m", forest_raw)
         self.assertEqual(strip_ansi(default_raw), strip_ansi(forest_raw))
 
@@ -744,7 +772,73 @@ class StatusLineTests(unittest.TestCase):
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_TMUX_STATUS_NAME).exists())
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_COMMON_NAME).exists())
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_COMMON_COMPAT_NAME).exists())
         self.assertFalse((install_home / ".claude" / "statusline.sh").exists())
+
+    def test_install_script_codex_target_overwrites_legacy_common_helper_with_new_functions(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        legacy_bin = install_home / ".codex" / "bin"
+        legacy_bin.mkdir(parents=True, exist_ok=True)
+        legacy_common = legacy_bin / "codex_statusline_common.sh"
+        legacy_common.write_text(
+            "#!/usr/bin/env bash\n"
+            "\n"
+            "statusline_toml_get() {\n"
+            "    printf '%s' \"$3\"\n"
+            "}\n"
+            "\n"
+            "statusline_resolve_bool_setting() {\n"
+            "    printf '%s' \"$2\"\n"
+            "}\n"
+        )
+
+        install_home, _ = self._run_install("--target", "codex", home=install_home)
+
+        installed_common = (install_home / ".codex" / "bin" / "codex_statusline_common.sh").read_text()
+        self.assertIn("statusline_resolve_positive_int_setting()", installed_common)
+
+    def test_statusline_cli_theme_direct_write_updates_settings(self):
+        settings_file = self._write_claude_settings({
+            "env": {
+                "CLAUDE_CODE_STATUSLINE_THEME": "forest",
+            }
+        })
+
+        output = self._run_statusline_cli("theme", "dracula")
+        settings = json.loads(settings_file.read_text())
+
+        self.assertEqual("dracula", settings["env"]["CLAUDE_CODE_STATUSLINE_THEME"])
+        self.assertIn("theme: forest → dracula", output)
+
+    def test_statusline_cli_theme_interactive_cancel_keeps_original_theme(self):
+        settings_file = self._write_claude_settings({
+            "env": {
+                "CLAUDE_CODE_STATUSLINE_THEME": "forest",
+            }
+        })
+
+        output = self._run_statusline_cli("theme", input_text="dracula\ncancel\n")
+        settings = json.loads(settings_file.read_text())
+
+        self.assertEqual("forest", settings["env"]["CLAUDE_CODE_STATUSLINE_THEME"])
+        self.assertIn("当前预览：dracula", output)
+        self.assertIn("模拟预览", output)
+        self.assertIn("已取消", output)
+
+    def test_statusline_cli_theme_interactive_confirm_writes_previewed_theme(self):
+        settings_file = self._write_claude_settings({
+            "env": {
+                "CLAUDE_CODE_STATUSLINE_THEME": "forest",
+            }
+        })
+
+        output = self._run_statusline_cli("theme", input_text="dracula\nconfirm\n")
+        settings = json.loads(settings_file.read_text())
+
+        self.assertEqual("dracula", settings["env"]["CLAUDE_CODE_STATUSLINE_THEME"])
+        self.assertIn("当前预览：dracula", output)
+        self.assertIn("模拟预览", output)
+        self.assertIn("theme: forest → dracula", output)
 
     def test_install_script_codex_target_installs_dynamic_bars_tmux_launcher(self):
         install_home, _ = self._run_install("--target", "codex")
@@ -756,6 +850,7 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn('visible_lines=()', launcher_text)
         self.assertIn('tmux set-option -t "$session_name" -q status "${#visible_lines[@]}"', launcher_text)
         self.assertIn('tmux set-option -t "$session_name" -q "status-format[$idx]" "  #($status_base --line ${visible_lines[$idx]})"', launcher_text)
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_CONFIG_NAME).exists())
 
     def test_install_script_codex_native_target_writes_tui_status_line(self):
         install_home, _ = self._run_install("--target", "codex-native")
@@ -765,17 +860,39 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_text)
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
 
+    def test_install_script_codex_target_writes_refresh_interval_from_flag(self):
+        install_home, _ = self._run_install("--target", "codex", "--refresh-interval", "7")
+
+        config_text = (install_home / ".codex" / "config.toml").read_text()
+        self.assertIn("[statusline]", config_text)
+        self.assertIn("refresh_interval = 7", config_text)
+
+    def test_install_script_codex_target_can_prompt_for_refresh_interval(self):
+        install_home, output = self._run_install(
+            "--target", "codex", "--interactive",
+            stdin_text="9\n",
+        )
+
+        config_text = (install_home / ".codex" / "config.toml").read_text()
+        self.assertIn("refresh_interval = 9", config_text)
+        self.assertIn("刷新频率", output)
+
     def test_install_script_uninstall_removes_tmux_assets(self):
         install_home, _ = self._run_install("--target", "codex")
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_TMUX_STATUS_NAME).exists())
         self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_COMMON_NAME).exists())
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_COMMON_COMPAT_NAME).exists())
 
         self._run_install("--uninstall", home=install_home)
 
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_STATUS_NAME).exists())
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_STATUSLINE_CONFIG_NAME).exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_STATUSLINE_COMMON_NAME).exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_STATUSLINE_COMMON_COMPAT_NAME).exists())
 
     def test_install_script_uninstall_removes_native_tui_status_line(self):
         install_home, _ = self._run_install("--target", "codex-native")
@@ -785,6 +902,100 @@ class StatusLineTests(unittest.TestCase):
         self._run_install("--uninstall", home=install_home)
 
         self.assertNotIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_file.read_text())
+
+    def test_install_script_bare_uninstall_warns_and_keeps_global_cleanup(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        self._run_install("--target", "both", "--with-hooks", home=install_home)
+
+        _, output = self._run_install("--uninstall", home=install_home)
+
+        self.assertIn("未指定 --target", output)
+        self.assertFalse((install_home / ".claude" / "statusline.sh").exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_HOOK_SIDECAR_NAME).exists())
+
+    def test_install_script_uninstall_target_claude_preserves_codex(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        self._run_install("--target", "both", "--with-hooks", "--with-notify", home=install_home)
+
+        settings_file = install_home / ".claude" / "settings.json"
+        settings = json.loads(settings_file.read_text())
+        settings.setdefault("env", {})
+        settings["env"]["CLAUDE_CODE_STATUSLINE_MAX_WIDTH"] = "90"
+        settings["env"]["CLAUDE_CODE_EFFORT_LEVEL"] = "high"
+        settings_file.write_text(json.dumps(settings))
+
+        config_file = install_home / ".codex" / "config.toml"
+        hooks_file = install_home / ".codex" / "hooks.json"
+        codex_config_before = config_file.read_text()
+        codex_hooks_before = hooks_file.read_text()
+
+        self._run_install("--uninstall", "--target", "claude", home=install_home)
+
+        self.assertFalse((install_home / ".claude" / "statusline.sh").exists())
+        claude_settings = json.loads(settings_file.read_text())
+        self.assertNotIn("statusLine", claude_settings)
+        self.assertNotIn("CLAUDE_CODE_STATUSLINE_MAX_WIDTH", claude_settings["env"])
+        self.assertEqual("high", claude_settings["env"]["CLAUDE_CODE_EFFORT_LEVEL"])
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_HOOK_SIDECAR_NAME).exists())
+        self.assertTrue((install_home / ".codex" / "bin" / CODEX_NOTIFY_BRIDGE_NAME).exists())
+        self.assertEqual(codex_config_before, config_file.read_text())
+        self.assertEqual(codex_hooks_before, hooks_file.read_text())
+
+    def test_install_script_uninstall_target_codex_preserves_claude(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        self._run_install("--target", "both", "--with-hooks", "--with-notify", home=install_home)
+
+        settings_file = install_home / ".claude" / "settings.json"
+        claude_settings_before = settings_file.read_text()
+
+        self._run_install("--uninstall", "--target", "codex", home=install_home)
+
+        self.assertTrue((install_home / ".claude" / "statusline.sh").exists())
+        self.assertEqual(claude_settings_before, settings_file.read_text())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_STATUSLINE_NAME).exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_HOOK_SIDECAR_NAME).exists())
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_NOTIFY_BRIDGE_NAME).exists())
+
+        config_text = (install_home / ".codex" / "config.toml").read_text()
+        self.assertNotIn("show_hook_segment", config_text)
+        self.assertNotIn("show_notify_segment", config_text)
+        self.assertNotIn("codex_hooks = true", config_text)
+        self.assertNotIn("notify =", config_text)
+
+    def test_install_script_uninstall_target_codex_native_preserves_other_codex_config(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        codex_dir = install_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        config_file = codex_dir / "config.toml"
+        config_file.write_text(
+            'model = "gpt-5.5"\n'
+            'model_reasoning_effort = "high"\n'
+            '\n'
+            '[projects."/tmp/project"]\n'
+            'trust_level = "trusted"\n'
+            '\n'
+            '[statusline]\n'
+            'theme = "rose"\n'
+        )
+
+        self._run_install("--target", "codex-native", "--with-notify", home=install_home)
+        self._run_install("--uninstall", "--target", "codex-native", home=install_home)
+
+        config_text = config_file.read_text()
+        self.assertIn('model = "gpt-5.5"', config_text)
+        self.assertIn('model_reasoning_effort = "high"', config_text)
+        self.assertIn('[projects."/tmp/project"]', config_text)
+        self.assertIn('trust_level = "trusted"', config_text)
+        self.assertIn("[statusline]", config_text)
+        self.assertIn('theme = "rose"', config_text)
+        self.assertNotIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_text)
+        self.assertNotIn("notify =", config_text)
+        self.assertNotIn("notifications = true", config_text)
+        self.assertFalse((install_home / ".codex" / "bin" / CODEX_NOTIFY_BRIDGE_NAME).exists())
 
     def test_tmux_status_script_renders_local_summary(self):
         """codex_tmux_status.sh shim now delegates to codex_statusline.sh."""
@@ -897,6 +1108,28 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("notify =", codex_doc_text)
         self.assertIn("git pull --ff-only", codex_doc_text)
         self.assertIn("show_notify_segment", codex_doc_text)
+        self.assertIn("show_buddy_segment", codex_doc_text)
+        self.assertIn("statusline-buddy-cache.json", codex_doc_text)
+        self.assertIn("Buddy handoff 状态", readme_text)
+
+    def test_statusline_skill_theme_preview_requires_confirm_before_write(self):
+        skill_text = (ROOT / "skills" / "statusline" / "SKILL.md").read_text()
+        readme_text = (ROOT / "README.md").read_text()
+
+        self.assertIn("只做模拟预览", skill_text)
+        self.assertIn("确认后", skill_text)
+        self.assertIn("取消", skill_text)
+        self.assertIn("主题预览", readme_text)
+        self.assertIn("确认后才写入", readme_text)
+
+    def test_readme_and_skill_document_local_statusline_cli(self):
+        skill_text = (ROOT / "skills" / "statusline" / "SKILL.md").read_text()
+        readme_text = (ROOT / "README.md").read_text()
+
+        self.assertIn("./scripts/statusline_cli.sh theme", skill_text)
+        self.assertIn("./scripts/statusline_cli.sh theme", readme_text)
+        self.assertIn("本地可执行 CLI", readme_text)
+        self.assertIn("对应本地脚本", skill_text)
 
 
 class CodexStatusLineTests(unittest.TestCase):
@@ -944,7 +1177,7 @@ class CodexStatusLineTests(unittest.TestCase):
                 config_text += "\n"
         (self.codex_home / "config.toml").write_text(config_text)
 
-    def _run_codex(self, budget=None, extra_env=None, raw=False, write_session=True, cwd=None, args=None, layout="compact"):
+    def _run_codex(self, budget=None, extra_env=None, raw=False, write_session=True, cwd=None, args=None, layout="compact", clear_cache=True):
         env = os.environ.copy()
         env["HOME"] = str(Path(self.temp_dir.name))
         env["TZ"] = "UTC"
@@ -960,10 +1193,11 @@ class CodexStatusLineTests(unittest.TestCase):
                 if key not in codex_keep:
                     del env[key]
         # Clear test cache
-        try:
-            cache.unlink()
-        except FileNotFoundError:
-            pass
+        if clear_cache:
+            try:
+                cache.unlink()
+            except FileNotFoundError:
+                pass
         if layout is not None:
             env["CODEX_STATUSLINE_LAYOUT"] = layout
         if budget is not None:
@@ -986,6 +1220,24 @@ class CodexStatusLineTests(unittest.TestCase):
             check=True,
         )
         return result.stdout if raw else strip_ansi(result.stdout)
+
+    def _run_codex_cli(self, *args, input_text=None):
+        env = os.environ.copy()
+        env["HOME"] = str(Path(self.temp_dir.name))
+        env["TZ"] = "UTC"
+        env["CODEX_STATUSLINE_SESSION_DIR"] = str(self.codex_home / "sessions")
+        env["CODEX_STATUSLINE_FORMAT"] = "ansi"
+
+        result = subprocess.run(
+            ["/bin/bash", str(CODEX_STATUSLINE_CLI_SCRIPT), *args],
+            input=input_text,
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=ROOT,
+            check=True,
+        )
+        return result.stdout
 
     def _run_codex_tmux_launcher(self, extra_env=None, cwd=None, config_statusline=None):
         fake_bin = Path(self.temp_dir.name) / "fake-bin"
@@ -1022,6 +1274,49 @@ class CodexStatusLineTests(unittest.TestCase):
 
         return tmux_log.read_text().splitlines()
 
+    def test_codex_statusline_compact_respects_segment_order_from_env(self):
+        output = self._run_codex(
+            extra_env={"CODEX_STATUSLINE_SEGMENTS": "ctx,model,git,5h,7d,eff"},
+            layout="compact",
+        )
+
+        self.assertLess(output.index("ctx "), output.index("gpt-5.4"))
+        self.assertLess(output.index("gpt-5.4"), output.index("git "))
+        self.assertLess(output.index("git "), output.index("5h "))
+        self.assertLess(output.index("5h "), output.index("eff high"))
+
+    def test_codex_statusline_reads_segment_order_from_config(self):
+        self._write_codex_config('segments = "ctx,model,git,5h,7d,eff"\nlayout = "compact"')
+
+        output = self._run_codex(layout=None)
+
+        self.assertLess(output.index("ctx "), output.index("gpt-5.4"))
+        self.assertLess(output.index("gpt-5.4"), output.index("git "))
+
+    def test_codex_statusline_cli_theme_direct_write_updates_config(self):
+        output = self._run_codex_cli("theme", "dracula")
+        config_text = (self.codex_home / "config.toml").read_text()
+
+        self.assertIn('theme = "dracula"', config_text)
+        self.assertIn("theme 已更新为 dracula", output)
+
+    def test_codex_statusline_cli_preview_uses_real_renderer(self):
+        output = strip_ansi(self._run_codex_cli("preview"))
+
+        self.assertIn("gpt-5.4", output)
+        self.assertIn("97% left", output)
+        self.assertIn("85% left", output)
+
+    def test_codex_statusline_cli_configure_can_save_interactive_preview_state(self):
+        output = self._run_codex_cli(
+            "configure",
+            input_text="  s",
+        )
+        config_text = (self.codex_home / "config.toml").read_text()
+
+        self.assertIn('theme = "dracula"', config_text)
+        self.assertIn("配置已保存", output)
+
     def _run_hook_sidecar(self, payload):
         cache = Path(self.temp_dir.name) / "hook-cache.json"
         env = os.environ.copy()
@@ -1057,6 +1352,11 @@ class CodexStatusLineTests(unittest.TestCase):
 
         return json.loads(cache.read_text())
 
+    def _write_buddy_cache(self, payload):
+        cache = Path(self.temp_dir.name) / "buddy-cache.json"
+        cache.write_text(json.dumps(payload))
+        return cache
+
     def test_codex_model_from_config(self):
         output = self._run_codex(budget=150)
         self.assertIn("gpt-5.4", output)
@@ -1084,6 +1384,60 @@ class CodexStatusLineTests(unittest.TestCase):
 
         self.assertIn("ctx 129k/258k 50%", output)
         self.assertNotIn("ctx 8.5m/258k", output)
+
+    def test_codex_session_file_override_uses_targeted_session(self):
+        older_dir = self.codex_home / "sessions" / "2026" / "03" / "10"
+        older_dir.mkdir(parents=True, exist_ok=True)
+        target_session = older_dir / "rollout-target.jsonl"
+        target_session.write_text(json.dumps(CODEX_TOKEN_COUNT_EVENT) + "\n")
+
+        newer_dir = self.codex_home / "sessions" / "2026" / "03" / "12"
+        newer_dir.mkdir(parents=True, exist_ok=True)
+        newer_event = json.loads(json.dumps(CODEX_TOKEN_COUNT_EVENT))
+        newer_event["payload"]["info"]["total_token_usage"]["total_tokens"] = 12000
+        newer_event["payload"]["info"]["total_token_usage"]["input_tokens"] = 11000
+        newer_event["payload"]["info"]["total_token_usage"]["cached_input_tokens"] = 500
+        newer_event["payload"]["info"]["total_token_usage"]["output_tokens"] = 1000
+        newer_event["payload"]["rate_limits"]["primary"]["used_percent"] = 0.0
+        newer_event["payload"]["rate_limits"]["secondary"]["used_percent"] = 10.0
+        (newer_dir / "rollout-newer.jsonl").write_text(json.dumps(newer_event) + "\n")
+
+        output = self._run_codex(
+            budget=150,
+            write_session=False,
+            extra_env={"CODEX_STATUSLINE_SESSION_FILE": str(target_session)},
+        )
+
+        self.assertIn("ctx 89k/258k 34%", output)
+        self.assertNotIn("ctx 12k/258k 4%", output)
+
+    def test_codex_session_file_override_prefers_primary_limit_id_within_same_session(self):
+        target_session = self.session_dir / "rollout-mixed.jsonl"
+        primary_event = json.loads(json.dumps(CODEX_TOKEN_COUNT_EVENT))
+        primary_event["payload"]["rate_limits"]["limit_id"] = "codex"
+        primary_event["payload"]["rate_limits"]["limit_name"] = None
+        primary_event["payload"]["rate_limits"]["primary"]["used_percent"] = 14.0
+        primary_event["payload"]["rate_limits"]["secondary"]["used_percent"] = 4.0
+
+        spark_event = json.loads(json.dumps(CODEX_TOKEN_COUNT_EVENT))
+        spark_event["payload"]["rate_limits"]["limit_id"] = "codex_bengalfox"
+        spark_event["payload"]["rate_limits"]["limit_name"] = "GPT-5.3-Codex-Spark"
+        spark_event["payload"]["rate_limits"]["primary"]["used_percent"] = 0.0
+        spark_event["payload"]["rate_limits"]["secondary"]["used_percent"] = 10.0
+
+        target_session.write_text(
+            json.dumps(primary_event) + "\n" + json.dumps(spark_event) + "\n"
+        )
+
+        output = self._run_codex(
+            budget=150,
+            write_session=False,
+            extra_env={"CODEX_STATUSLINE_SESSION_FILE": str(target_session)},
+        )
+
+        self.assertIn("5h 86% left", output)
+        self.assertIn("weekly 96% left", output)
+        self.assertNotIn("5h 100% left", output)
 
     def test_codex_hook_sidecar_records_pretooluse_status(self):
         state = self._run_hook_sidecar({
@@ -1190,6 +1544,82 @@ class CodexStatusLineTests(unittest.TestCase):
 
         self.assertNotIn("notify ", output)
 
+    def test_codex_buddy_segment_reads_recent_cache(self):
+        buddy_cache = self._write_buddy_cache({
+            "status": "needs_input",
+            "summary": "Waiting for confirmation",
+            "updated_at": 1773350000,
+        })
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_SHOW_BUDDY_SEGMENT": "true",
+                "CODEX_STATUSLINE_BUDDY_CACHE_FILE": str(buddy_cache),
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertIn("buddy needs input", output)
+
+    def test_codex_buddy_segment_hides_expired_cache(self):
+        buddy_cache = self._write_buddy_cache({
+            "status": "done",
+            "summary": "Review ready",
+            "updated_at": 1773350000,
+        })
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_SHOW_BUDDY_SEGMENT": "true",
+                "CODEX_STATUSLINE_BUDDY_CACHE_FILE": str(buddy_cache),
+                "CODEX_STATUSLINE_BUDDY_TTL": "5",
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertNotIn("buddy ", output)
+
+    def test_codex_buddy_segment_respects_config_toggle(self):
+        buddy_cache = self._write_buddy_cache({
+            "status": "done",
+            "summary": "Review ready",
+            "updated_at": 1773350000,
+        })
+        self._write_codex_config(
+            'show_buddy_segment = true\n'
+        )
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_BUDDY_CACHE_FILE": str(buddy_cache),
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertIn("buddy done", output)
+
+    def test_codex_segments_filter_can_hide_buddy_segment(self):
+        buddy_cache = self._write_buddy_cache({
+            "status": "needs_input",
+            "summary": "Waiting for confirmation",
+            "updated_at": 1773350000,
+        })
+
+        output = self._run_codex(
+            budget=180,
+            extra_env={
+                "CODEX_STATUSLINE_SHOW_BUDDY_SEGMENT": "true",
+                "CODEX_STATUSLINE_BUDDY_CACHE_FILE": str(buddy_cache),
+                "CODEX_STATUSLINE_SEGMENTS": "model,eff,ctx,git,hook,notify,5h,7d",
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+
+        self.assertNotIn("buddy ", output)
+
     def test_codex_bars_overview_includes_notify_segment(self):
         notify_cache = Path(self.temp_dir.name) / "notify-cache.json"
         notify_cache.write_text(json.dumps({
@@ -1210,6 +1640,49 @@ class CodexStatusLineTests(unittest.TestCase):
 
         self.assertEqual(4, len(lines))
         self.assertIn("notify Task finished", lines[1])
+
+    def test_codex_bars_overview_places_buddy_in_right_slot(self):
+        buddy_cache = self._write_buddy_cache({
+            "status": "done",
+            "summary": "Review ready",
+            "updated_at": 1773350000,
+        })
+
+        output = self._run_codex(
+            budget=120,
+            extra_env={
+                "CODEX_STATUSLINE_LAYOUT": "bars",
+                "CODEX_STATUSLINE_SHOW_BUDDY_SEGMENT": "true",
+                "CODEX_STATUSLINE_BUDDY_CACHE_FILE": str(buddy_cache),
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(4, len(lines))
+        self.assertRegex(lines[1], r"ctx [^\n]+\s{2,}buddy done")
+
+    def test_codex_bars_overview_truncates_buddy_summary_before_status(self):
+        buddy_cache = self._write_buddy_cache({
+            "status": "needs_input",
+            "summary": "Waiting for confirmation on deployment rollback plan",
+            "updated_at": 1773350000,
+        })
+
+        output = self._run_codex(
+            budget=72,
+            extra_env={
+                "CODEX_STATUSLINE_LAYOUT": "bars",
+                "CODEX_STATUSLINE_SHOW_BUDDY_SEGMENT": "true",
+                "CODEX_STATUSLINE_BUDDY_CACHE_FILE": str(buddy_cache),
+                "CODEX_STATUSLINE_NOW_EPOCH": "1773350100",
+            },
+        )
+        lines = output.splitlines()
+
+        self.assertEqual(4, len(lines))
+        self.assertIn("buddy needs input", lines[1])
+        self.assertNotIn("deployment rollback plan", lines[1])
 
     def test_codex_segments_filter_can_hide_hook_segment(self):
         hook_cache = Path(self.temp_dir.name) / "hook-cache.json"
@@ -1319,8 +1792,8 @@ class CodexStatusLineTests(unittest.TestCase):
     def test_codex_remaining_usage_colors_follow_left_percent(self):
         raw_output = self._run_codex(budget=150, raw=True)
 
-        self.assertIn(f"5h\x1b[0m \x1b[38;2;0;160;0m{CODEX_5H_LEFT}% left", raw_output)
-        self.assertIn(f"weekly\x1b[0m \x1b[38;2;0;160;0m{CODEX_WEEKLY_LEFT}% left", raw_output)
+        self.assertIn(f"5h\x1b[0m \x1b[1m\x1b[38;2;52;211;153m{CODEX_5H_LEFT}% left", raw_output)
+        self.assertIn(f"weekly\x1b[0m \x1b[1m\x1b[38;2;52;211;153m{CODEX_WEEKLY_LEFT}% left", raw_output)
 
     def test_codex_theme_changes_ansi_only(self):
         default_raw = self._run_codex(budget=150, raw=True)
@@ -1330,7 +1803,7 @@ class CodexStatusLineTests(unittest.TestCase):
             extra_env={"CODEX_STATUSLINE_THEME": "dracula"},
         )
         # Different ANSI codes
-        self.assertIn("[38;2;77;166;255m", default_raw)
+        self.assertIn("[38;2;96;165;250m", default_raw)
         self.assertIn("[38;2;189;147;249m", dracula_raw)
         # Same plain text
         self.assertEqual(strip_ansi(default_raw), strip_ansi(dracula_raw))
@@ -1552,8 +2025,8 @@ class CodexStatusLineTests(unittest.TestCase):
         git_line = raw_output.splitlines()[0]
 
         self.assertIn(DEFAULT_SECONDARY_ANSI, git_line)
-        self.assertNotIn("[38;2;77;175;176m", git_line)
-        self.assertNotIn("[38;2;196;208;212m", git_line)
+        self.assertNotIn("[38;2;45;212;191m", git_line)
+        self.assertNotIn("[38;2;226;232;240m", git_line)
 
     def test_codex_bars_layout_line_selection_matches_new_order(self):
         git_line = self._run_codex(
@@ -1616,6 +2089,101 @@ class CodexStatusLineTests(unittest.TestCase):
         self.assertIn("--line 2)", joined)
         self.assertIn("--line 3)", joined)
         self.assertIn("--line 4)", joined)
+
+    def test_codex_refresh_interval_controls_session_cache_ttl(self):
+        initial_output = self._run_codex(budget=150)
+        self.assertIn("ctx 89k/258k 34%", initial_output)
+
+        updated_event = json.loads(json.dumps(CODEX_TOKEN_COUNT_EVENT))
+        updated_event["payload"]["info"]["total_token_usage"]["total_tokens"] = 12000
+        updated_event["payload"]["info"]["total_token_usage"]["input_tokens"] = 11000
+        updated_event["payload"]["info"]["total_token_usage"]["cached_input_tokens"] = 500
+        updated_event["payload"]["info"]["total_token_usage"]["output_tokens"] = 1000
+        self._write_session([updated_event])
+
+        cache_file = Path(self.temp_dir.name) / "codex-cache.json"
+        stale_mtime = cache_file.stat().st_mtime - 2
+        os.utime(cache_file, (stale_mtime, stale_mtime))
+
+        cached_output = self._run_codex(
+            budget=150,
+            write_session=False,
+            clear_cache=False,
+        )
+        self.assertIn("ctx 89k/258k 34%", cached_output)
+        self.assertNotIn("ctx 12k/258k 4%", cached_output)
+
+        refreshed_output = self._run_codex(
+            budget=150,
+            write_session=False,
+            clear_cache=False,
+            extra_env={"CODEX_STATUSLINE_REFRESH_INTERVAL": "1"},
+        )
+        self.assertIn("ctx 12k/258k 4%", refreshed_output)
+
+    def test_codex_tmux_launcher_uses_refresh_interval_from_config(self):
+        tmux_lines = self._run_codex_tmux_launcher(
+            config_statusline='layout = "bars"\nrefresh_interval = 9\n',
+        )
+        joined = "\n".join(tmux_lines)
+        self.assertIn("set-option\t-t\tcodex-codex-repo\t-q\tstatus-interval\t9", joined)
+
+    def test_codex_tmux_launcher_refresh_interval_env_overrides_config(self):
+        tmux_lines = self._run_codex_tmux_launcher(
+            extra_env={"CODEX_STATUSLINE_REFRESH_INTERVAL": "3"},
+            config_statusline='layout = "bars"\nrefresh_interval = 9\n',
+        )
+        joined = "\n".join(tmux_lines)
+        self.assertIn("set-option\t-t\tcodex-codex-repo\t-q\tstatus-interval\t3", joined)
+
+    def test_codex_tmux_launcher_binds_statusline_to_new_session_file(self):
+        fake_bin = Path(self.temp_dir.name) / "tmux-bind-bin"
+        fake_bin.mkdir(exist_ok=True)
+        tmux_log = Path(self.temp_dir.name) / "tmux-bind.log"
+        session_file = self.codex_home / "sessions" / "2026" / "03" / "11" / "rollout-bound.jsonl"
+
+        tmux_script = fake_bin / "tmux"
+        tmux_script.write_text(
+            "#!/bin/bash\n"
+            "for arg in \"$@\"; do printf '%s\\t' \"$arg\"; done >> \"$TMUX_LOG\"\n"
+            "printf '\\n' >> \"$TMUX_LOG\"\n"
+            "if [ \"$1\" = \"has-session\" ]; then exit 1; fi\n"
+            "if [ \"$1\" = \"new-session\" ]; then\n"
+            "  cmd=\"${@: -1}\"\n"
+            "  /bin/bash -lc \"$cmd\"\n"
+            "  exit 0\n"
+            "fi\n"
+            "exit 0\n"
+        )
+        tmux_script.chmod(0o755)
+
+        fake_codex = fake_bin / "codex"
+        fake_codex.write_text(
+            "#!/bin/bash\n"
+            "mkdir -p \"$HOME/.codex/sessions/2026/03/11\"\n"
+            "cat > \"$HOME/.codex/sessions/2026/03/11/rollout-bound.jsonl\" <<'EOF'\n"
+            + json.dumps(CODEX_TOKEN_COUNT_EVENT) + "\n"
+            "EOF\n"
+        )
+        fake_codex.chmod(0o755)
+
+        env = os.environ.copy()
+        env["HOME"] = str(Path(self.temp_dir.name))
+        env["PATH"] = f"{fake_bin}:{env['PATH']}"
+        env["TMUX_LOG"] = str(tmux_log)
+        env["CODEX_TMUX_STATUS_SCRIPT"] = str(CODEX_SCRIPT)
+
+        subprocess.run(
+            ["/bin/bash", str(TMUX_LAUNCHER_SCRIPT)],
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=str(self.repo),
+            check=True,
+        )
+
+        joined = tmux_log.read_text()
+        self.assertIn(f"set-environment\t-t\tcodex-codex-repo\tCODEX_STATUSLINE_SESSION_FILE\t{session_file}\t", joined)
 
     def test_codex_unknown_layout_falls_back_to_bars(self):
         bars_output = self._run_codex(budget=100, layout="bars")

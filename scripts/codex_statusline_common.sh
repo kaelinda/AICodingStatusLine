@@ -35,3 +35,15 @@ statusline_resolve_bool_setting() {
             ;;
     esac
 }
+
+statusline_resolve_positive_int_setting() {
+    local requested="$1"
+    local default_value="$2"
+
+    if [[ "$requested" =~ ^[0-9]+$ ]] && [ "$requested" -gt 0 ] 2>/dev/null; then
+        printf "%s" "$requested"
+        return
+    fi
+
+    printf "%s" "$default_value"
+}

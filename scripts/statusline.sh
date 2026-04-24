@@ -162,17 +162,19 @@ case "$theme_name" in
         white='\033[38;2;253;232;239m'
         ;;
     *)
-        accent='\033[38;2;77;166;255m'
-        teal='\033[38;2;77;175;176m'
-        branch='\033[38;2;196;208;212m'
-        muted='\033[38;2;133;149;155m'
-        red='\033[38;2;255;85;85m'
-        orange='\033[38;2;255;176;85m'
-        yellow='\033[38;2;230;200;0m'
-        green='\033[38;2;0;160;0m'
-        white='\033[38;2;228;232;234m'
+        accent='\033[38;2;96;165;250m'
+        teal='\033[38;2;45;212;191m'
+        branch='\033[38;2;226;232;240m'
+        muted='\033[38;2;148;163;184m'
+        red='\033[38;2;248;113;113m'
+        orange='\033[38;2;251;146;60m'
+        yellow='\033[38;2;251;191;36m'
+        green='\033[38;2;52;211;153m'
+        white='\033[38;2;229;231;235m'
         ;;
 esac
+track='\033[38;2;71;85;105m'
+bold='\033[1m'
 dim='\033[2m'
 reset='\033[0m'
 
@@ -425,7 +427,7 @@ build_ctx_segment() {
     local pct_color
     pct_color=$(usage_color "$pct_used")
     SEG_PLAIN="ctx ${used_tokens}/${total_tokens} ${pct_used}%"
-    SEG_TEXT="${dim}ctx${reset} ${primary}${used_tokens}/${total_tokens}${reset} ${pct_color}${pct_used}%${reset}"
+    SEG_TEXT="${dim}ctx${reset} ${primary}${used_tokens}/${total_tokens}${reset} ${bold}${pct_color}${pct_used}%${reset}"
 }
 
 build_eff_segment() {
@@ -461,7 +463,7 @@ build_five_hour_segment() {
     disp_pct=$(display_pct "$five_hour_pct")
     suffix=$(pct_suffix)
     SEG_PLAIN="5h ${disp_pct}%${suffix}"
-    SEG_TEXT="${dim}5h${reset} ${pct_color}${disp_pct}%${suffix}${reset}"
+    SEG_TEXT="${dim}5h${reset} ${bold}${pct_color}${disp_pct}%${suffix}${reset}"
     if [ "$show_five_hour_reset" -eq 1 ] && [ -n "$five_hour_reset" ]; then
         SEG_PLAIN+=" ${five_hour_reset}"
         SEG_TEXT+=" ${secondary}${five_hour_reset}${reset}"
@@ -480,7 +482,7 @@ build_seven_day_segment() {
     disp_pct=$(display_pct "$seven_day_pct")
     suffix=$(pct_suffix)
     SEG_PLAIN="7d ${disp_pct}%${suffix}"
-    SEG_TEXT="${dim}7d${reset} ${pct_color}${disp_pct}%${suffix}${reset}"
+    SEG_TEXT="${dim}7d${reset} ${bold}${pct_color}${disp_pct}%${suffix}${reset}"
     if [ "$show_seven_day_reset" -eq 1 ] && [ -n "$seven_day_reset" ]; then
         SEG_PLAIN+=" ${seven_day_reset}"
         SEG_TEXT+=" ${secondary}${seven_day_reset}${reset}"
@@ -554,7 +556,7 @@ build_usage_bar_line() {
     fi
     local empty_width=$(( bar_width - filled_width ))
 
-    local filled_plain empty_plain filled_text pct_color time_color
+    local filled_plain empty_plain filled_text pct_color time_color label_color
     filled_plain=$(repeat_char "$filled_width" "$bar_filled_char")
     empty_plain=$(repeat_char "$empty_width" "$bar_empty_char")
 
@@ -567,9 +569,11 @@ build_usage_bar_line() {
         time_color="$secondary"
         filled_text="${pct_color}${filled_plain}${reset}"
     fi
+    label_color="$teal"
+    [ "$label" = "7d" ] && label_color="$accent"
 
     LINE_PLAIN="${label} ${pct_text} [${filled_plain}${empty_plain}]"
-    LINE_TEXT="${dim}${label}${reset} ${pct_color}${pct_text}${reset} ${dim}[${reset}${filled_text}${secondary}${empty_plain}${reset}${dim}]${reset}"
+    LINE_TEXT="${label_color}${label}${reset} ${bold}${pct_color}${pct_text}${reset} ${dim}[${reset}${filled_text}${track}${empty_plain}${reset}${dim}]${reset}"
 
     if [ -n "$time_text" ]; then
         LINE_PLAIN+=" ${time_text}"

@@ -51,6 +51,8 @@ cd AICodingStatusLine
 ./install.sh --target codex --with-hooks # Codex tmux + 实验性 hooks sidecar
 ./install.sh --target codex-native --with-notify # Codex 原生状态栏 + notify bridge
 ./install.sh --target codex --with-hooks --with-notify # Codex tmux + hooks + notify
+./install.sh --target codex --refresh-interval 3 # 指定 Codex 刷新频率（秒）
+./install.sh --target codex --interactive # 交互式设置 Codex 刷新频率
 ./install.sh --target both         # Claude + Codex tmux
 ```
 
@@ -60,11 +62,16 @@ cd AICodingStatusLine
 ./install.sh --target both --theme dracula --layout bars --bar-style dots
 ```
 
-卸载：
+卸载（推荐显式指定目标，避免影响另一端配置）：
 
 ```bash
-./install.sh --uninstall
+./install.sh --uninstall --target claude       # 只卸载 Claude Code 状态栏
+./install.sh --uninstall --target codex        # 只卸载 Codex tmux 增强、hooks、notify 和 [statusline] 托管项
+./install.sh --uninstall --target codex-native # 只移除 Codex 原生 tui.status_line 和 notify bridge
+./install.sh --uninstall --target both         # 明确同时卸载 Claude + Codex
 ```
+
+> 兼容旧用法：`./install.sh --uninstall` 仍会全局清理 Claude Code 和 Codex，但会打印提示。日常建议使用带 `--target` 的卸载命令。
 
 更新：
 
@@ -145,21 +152,42 @@ git pull --ff-only
 
 显示内容：
 
-- `compact`：模型名 | 推理努力 | ctx 使用率 | git 分支(+N -N) | 5h 剩余额度 | weekly 剩余额度（长周期额度）
-- `bars`：第 1 行 `repo@branch`，第 2 行 `model | eff | ctx`，第 3 / 4 行为 `5h` 和 `weekly` 进度条
+- `compact`：模型名 | 推理努力 | ctx 使用率 | 可选的 `buddy` / `hook` / `notify` 状态 | git 分支(+N -N) | 5h 剩余额度 | weekly 剩余额度（长周期额度）
+- `bars`：第 1 行 `repo@branch`，第 2 行左侧 `model | eff | ctx`，右侧可选 `buddy` handoff 槽位，第 3 / 4 行为 `5h` 和 `weekly` 进度条
 
 其中 `ctx` 是 context window 使用率，`weekly` 是长周期额度摘要；在窄宽度下会优先保留百分比，再按空间裁剪时间文本。
 
 配置方式：通过 `~/.codex/config.toml` 的 `[statusline]` 段落持久化配置。
+
+如果你不想手改 `config.toml`，现在也可以直接用本地配置器实时预览：
+
+```bash
+./scripts/codex_statusline_cli.sh show
+./scripts/codex_statusline_cli.sh preview
+./scripts/codex_statusline_cli.sh configure
+```
+
+安装 `codex` tmux 增强模式后，还会自动安装到：
+
+```bash
+~/.codex/bin/codex-statusline-config
+```
+
+`configure` 会在终端内显示一个交互式配置面板。你切换主题、布局、段落显隐时，底部预览会直接调用真实 `codex-statusline` 渲染器刷新，效果比“改完配置再重开 tmux 看结果”更接近重度命令行用户的反馈回路。
 
 ```toml
 [statusline]
 theme = "dracula"
 layout = "bars"
 bar_style = "blocks"
+refresh_interval = 5
+segments = "ctx,model,git,5h,7d,eff"
 show_git_line = true
 show_overview_line = true
+show_buddy_segment = true
 ```
+
+其中 `segments` 现在不仅控制显示哪些段落，也控制紧凑布局和概览行里的显示顺序。
 
 > 详细安装步骤、完整配置参考、tmux 多行布局说明请看 → [docs/codex-cli.md](docs/codex-cli.md)
 
@@ -218,6 +246,46 @@ bridge 当前会：
 - 接收 Codex 发出的通知 payload，并把最近一次通知写到 `/tmp/codex/statusline-notify-cache.json`
 - 在支持的平台上尝试转发桌面通知：macOS 使用 `osascript`，Linux 使用 `notify-send`
 - 不要求 tmux；因此适合原生 `tui.status_line` 用户
+
+### Buddy handoff 状态
+
+tmux 增强模式现在支持一个可选的 `buddy` 槽位。它不是普通 segment，而是 `bars` 概览行右侧的 handoff 提示位。
+
+- 常态可以显示 `buddy idle` / `buddy ok`
+- 需要你接手时显示 `buddy done`、`buddy blocked`、`buddy needs input`
+- `compact` 布局下会退化成普通 segment，仍然遵循同样的状态语义
+
+启用方式：
+
+```toml
+[statusline]
+show_buddy_segment = true
+```
+
+默认缓存文件：
+
+- `/tmp/codex/statusline-buddy-cache.json`
+
+缓存 JSON 示例：
+
+```json
+{
+  "status": "needs_input",
+  "summary": "Waiting for confirmation",
+  "updated_at": 1773350100,
+  "source": "sidecar"
+}
+```
+
+推荐状态值：
+
+- `idle`
+- `ok`
+- `done`
+- `blocked`
+- `needs_input`
+
+你可以让任何外部脚本往这个文件写状态。状态栏只负责读取和渲染，不绑定具体事件来源。
 - 如果你在 tmux 增强模式下安装了 `--with-notify`，状态栏会自动显示 `notify ...` 段落
 
 ---
@@ -236,7 +304,7 @@ bridge 当前会：
 | `/statusline segments show <name>` | 显示指定段落 |
 | `/statusline segments hide <name>` | 隐藏指定段落 |
 | `/statusline segments reset` | 重置段落（显示全部） |
-| `/statusline theme [值]` | 单选主题（`(●)/( )` radio，9 种，支持模糊匹配） |
+| `/statusline theme [值]` | 单选主题（`(●)/( )` radio，9 种，支持模糊匹配；无参数时先主题预览，确认后才写入） |
 | `/statusline layout [值]` | 单选布局（`bars` / `compact`） |
 | `/statusline bar-style [值]` | 单选进度条样式（7 种 + 自定义） |
 | `/statusline pct-mode [值]` | 单选百分比模式（`used` / `left`） |
@@ -252,11 +320,29 @@ bridge 当前会：
 - 模糊匹配：`drac` → `dracula`、`sol` → `solarized`
 - 智能联动：改 `bar-style` 时提醒切换到 `bars` 布局；选 `bars` 布局时推荐非 ascii 样式
 - 变更前后对比：每次修改显示旧值 → 新值
-- 主题预览：输出 ANSI 色块展示 9 个颜色角色
+- 主题预览：`/statusline theme` 无参数时先做主题预览，确认后才写入；`/statusline preview` 可单独查看 ANSI 色板
 - 组合推荐：说"推荐暗色主题"可获得主题 + 布局 + 样式的预设方案
 - 一键更新：`/statusline update` 从 GitHub 拉取最新版本并安装到本地
 
 > `/statusline` 仅适用于 Claude Code。Codex CLI 的配置请直接编辑 `~/.codex/config.toml`。
+
+### 本地可执行 CLI
+
+如果你不在 Claude Code 对话里，也可以直接运行仓库内脚本：
+
+```bash
+./scripts/statusline_cli.sh show
+./scripts/statusline_cli.sh preview dracula
+./scripts/statusline_cli.sh theme dracula
+./scripts/statusline_cli.sh theme
+```
+
+- `show`：显示当前 Claude 主题
+- `preview [主题]`：输出 ANSI 色板预览，不写配置
+- `theme <主题>`：直接切换并写入 `~/.claude/settings.json`
+- `theme`：进入交互模式，切换候选主题时只做模拟预览，输入 `confirm` 后才写入，`cancel` 保持原主题
+
+这个脚本目前聚焦 Claude Code 主题管理，和 `/statusline theme` 的交互语义保持一致。
 
 ---
 
@@ -266,7 +352,7 @@ bridge 当前会：
 
 | 值 | 风格 | 色温 | 灵感来源 |
 |----|------|------|----------|
-| `default` | **默认**。蓝色主调，高对比度 | 冷色 | — |
+| `default` | **默认**。蓝青主调，暗色终端高对比 | 冷色 | Developer tools |
 | `forest` | 绿色主调，柔和自然 | 冷色 | — |
 | `dracula` | 紫色主调，暗色背景下表现出色 | 冷色 | [Dracula Theme](https://draculatheme.com) |
 | `monokai` | 青色主调，经典代码编辑器风格 | 冷色 | [Monokai Pro](https://monokai.pro) |
@@ -284,10 +370,10 @@ bridge 当前会：
 
 | 色彩角色 | `default` | `forest` | `dracula` | `monokai` | `solarized` | `ocean` |
 |----------|-----------|----------|-----------|-----------|-------------|---------|
-| 主强调色 | 🔵 `#4DA6FF` | 🟢 `#78C478` | 🟣 `#BD93F9` | 🔵 `#66D9EF` | 🔵 `#268BD2` | 🔵 `#00BCD4` |
-| 目录/Teal | `#4DAFB0` | `#5EAA96` | `#8BE9FD` | `#A6E22E` | `#2AA198` | `#0097A7` |
-| 分支名 | `#C4D0D4` | `#D6E0CD` | `#F8F8F2` | `#E6DB74` | `#93A1A1` | `#B2EBF2` |
-| 弱化文字 | `#73848B` | `#84907C` | `#6272A4` | `#75715E` | `#586E75` | `#78909C` |
+| 主强调色 | 🔵 `#60A5FA` | 🟢 `#78C478` | 🟣 `#BD93F9` | 🔵 `#66D9EF` | 🔵 `#268BD2` | 🔵 `#00BCD4` |
+| 目录/Teal | `#2DD4BF` | `#5EAA96` | `#8BE9FD` | `#A6E22E` | `#2AA198` | `#0097A7` |
+| 分支名 | `#E2E8F0` | `#D6E0CD` | `#F8F8F2` | `#E6DB74` | `#93A1A1` | `#B2EBF2` |
+| 弱化文字 | `#94A3B8` | `#84907C` | `#6272A4` | `#75715E` | `#586E75` | `#78909C` |
 
 **暖色系：**
 
@@ -340,7 +426,7 @@ bridge 当前会：
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `CODEX_STATUSLINE_SHOW_GIT_LINE` / `show_git_line` | `true` | 第 1 行 `repo@branch` |
-| `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` / `show_overview_line` | `true` | 第 2 行 `model \| eff \| ctx` |
+| `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` / `show_overview_line` | `true` | 第 2 行左侧 `model \| eff \| ctx`，右侧可选 `buddy` |
 
 ### 截图对比
 

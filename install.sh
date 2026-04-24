@@ -5,9 +5,11 @@
 #   --theme <name>    设置主题 (default/forest/dracula/monokai/solarized/ocean/sunset/amber/rose)
 #   --layout <mode>   设置布局 (compact/bars)
 #   --bar-style <s>   设置进度条样式 (ascii/dots/squares)
+#   --refresh-interval <sec> 设置 Codex 刷新频率（tmux 重绘 + session 缓存 TTL）
+#   --interactive     交互式询问可选配置（含 Codex 刷新频率）
 #   --with-hooks      为 Codex 安装实验性 hooks sidecar
 #   --with-notify     为 Codex 安装 notify bridge
-#   --uninstall       卸载状态栏
+#   --uninstall       卸载状态栏（建议配合 --target 使用）
 set -euo pipefail
 
 CLAUDE_DIR="$HOME/.claude"
@@ -22,12 +24,15 @@ TMUX_LAUNCHER_SOURCE="$SCRIPT_DIR/scripts/codex_tmux.sh"
 TMUX_STATUS_SOURCE="$SCRIPT_DIR/scripts/codex_tmux_status.sh"
 CODEX_STATUSLINE_SOURCE="$SCRIPT_DIR/scripts/codex_statusline.sh"
 CODEX_COMMON_SOURCE="$SCRIPT_DIR/scripts/codex_statusline_common.sh"
+CODEX_CONFIG_CLI_SOURCE="$SCRIPT_DIR/scripts/codex_statusline_cli.sh"
 HOOK_SIDECAR_SOURCE="$SCRIPT_DIR/scripts/codex_hook_sidecar.sh"
 NOTIFY_BRIDGE_SOURCE="$SCRIPT_DIR/scripts/codex_notify_bridge.sh"
 TMUX_LAUNCHER_TARGET="$CODEX_BIN_DIR/codex-tmux"
 TMUX_STATUS_TARGET="$CODEX_BIN_DIR/codex-tmux-status"
 CODEX_STATUSLINE_TARGET="$CODEX_BIN_DIR/codex-statusline"
-CODEX_COMMON_TARGET="$CODEX_BIN_DIR/codex-statusline-common.sh"
+CODEX_COMMON_TARGET="$CODEX_BIN_DIR/codex_statusline_common.sh"
+CODEX_COMMON_COMPAT_TARGET="$CODEX_BIN_DIR/codex-statusline-common.sh"
+CODEX_CONFIG_CLI_TARGET="$CODEX_BIN_DIR/codex-statusline-config"
 HOOK_SIDECAR_TARGET="$CODEX_BIN_DIR/codex-hook-sidecar"
 NOTIFY_BRIDGE_TARGET="$CODEX_BIN_DIR/codex-notify-bridge"
 CODEX_HOOKS_FILE="$CODEX_DIR/hooks.json"
@@ -45,20 +50,25 @@ warn()  { printf "${YELLOW}⚠${RESET} %s\n" "$1"; }
 err()   { printf "${RED}✖${RESET} %s\n" "$1" >&2; }
 
 TARGET="claude"
+TARGET_EXPLICIT=false
 THEME=""
 LAYOUT=""
 BAR_STYLE=""
+REFRESH_INTERVAL=""
 UNINSTALL=false
 WITH_HOOKS=false
 WITH_NOTIFY=false
+INTERACTIVE=false
 CODEX_NATIVE_STATUS_LINE='["model-with-reasoning", "context-remaining", "current-dir"]'
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --target)    TARGET="$2";    shift 2 ;;
+        --target)    TARGET="$2"; TARGET_EXPLICIT=true; shift 2 ;;
         --theme)     THEME="$2";     shift 2 ;;
         --layout)    LAYOUT="$2";    shift 2 ;;
         --bar-style) BAR_STYLE="$2"; shift 2 ;;
+        --refresh-interval) REFRESH_INTERVAL="$2"; shift 2 ;;
+        --interactive) INTERACTIVE=true; shift ;;
         --with-hooks) WITH_HOOKS=true; shift ;;
         --with-notify) WITH_NOTIFY=true; shift ;;
         --uninstall) UNINSTALL=true; shift   ;;
@@ -70,9 +80,11 @@ while [[ $# -gt 0 ]]; do
             printf "  --theme <name>    主题: default/forest/dracula/monokai/solarized/ocean/sunset/amber/rose\n"
             printf "  --layout <mode>   布局: compact/bars\n"
             printf "  --bar-style <s>   进度条: ascii/dots/squares\n"
+            printf "  --refresh-interval <sec> Codex 刷新频率（tmux 重绘 + session 缓存 TTL）\n"
+            printf "  --interactive     交互式询问可选配置\n"
             printf "  --with-hooks      为 Codex 安装实验性 hooks sidecar\n"
             printf "  --with-notify     为 Codex 安装 notify bridge\n"
-            printf "  --uninstall       卸载状态栏\n"
+            printf "  --uninstall       卸载状态栏；建议配合 --target 使用，不带 --target 会全局卸载\n"
             printf "  -h, --help        显示此帮助\n"
             exit 0
             ;;
@@ -90,6 +102,61 @@ case "$TARGET" in
         exit 1
         ;;
 esac
+
+is_positive_int() {
+    local value="$1"
+    [[ "$value" =~ ^[0-9]+$ ]] && [ "$value" -gt 0 ] 2>/dev/null
+}
+
+read_codex_statusline_value() {
+    local key="$1"
+
+    if [[ -f "$CODEX_CONFIG_FILE" ]]; then
+        sed -n '/^\[statusline\]/,/^\[/{ s/^'"$key"'[[:space:]]*=[[:space:]]*"\{0,1\}\([^"]*\)"\{0,1\}$/\1/p; }' "$CODEX_CONFIG_FILE" 2>/dev/null | head -1
+    fi
+}
+
+prompt_codex_refresh_interval() {
+    local current_value requested_value
+
+    current_value=$(read_codex_statusline_value "refresh_interval")
+    if ! is_positive_int "${current_value:-}"; then
+        current_value="5"
+    fi
+
+    printf "Codex 刷新频率（秒，直接回车使用 %s）: " "$current_value"
+    if ! IFS= read -r requested_value; then
+        requested_value=""
+    fi
+
+    if [[ -z "$requested_value" ]]; then
+        REFRESH_INTERVAL="$current_value"
+        return
+    fi
+
+    if is_positive_int "$requested_value"; then
+        REFRESH_INTERVAL="$requested_value"
+    else
+        warn "刷新频率无效，改用 ${current_value} 秒"
+        REFRESH_INTERVAL="$current_value"
+    fi
+}
+
+maybe_prompt_codex_refresh_interval() {
+    [[ "$TARGET" == "codex" || "$TARGET" == "both" ]] || return 0
+    [[ -n "$REFRESH_INTERVAL" ]] && return 0
+
+    if ! $INTERACTIVE && [[ ! -t 0 ]]; then
+        return 0
+    fi
+
+    prompt_codex_refresh_interval
+}
+
+if [[ -n "$REFRESH_INTERVAL" ]] && ! is_positive_int "$REFRESH_INTERVAL"; then
+    err "--refresh-interval 需要正整数秒数"
+    exit 1
+fi
 
 upsert_toml_key() {
     local section="$1"
@@ -190,6 +257,42 @@ remove_toml_exact_key() {
     mv "$tmp" "$CODEX_CONFIG_FILE"
 }
 
+remove_toml_key() {
+    local section="$1"
+    local key="$2"
+
+    [[ -f "$CODEX_CONFIG_FILE" ]] || return 0
+
+    local tmp
+    tmp=$(mktemp)
+
+    awk -v section="$section" -v key="$key" '
+        BEGIN {
+            in_section = 0
+        }
+
+        $0 ~ "^\\[" section "\\][[:space:]]*$" {
+            in_section = 1
+            print
+            next
+        }
+
+        in_section && /^\[/ {
+            in_section = 0
+        }
+
+        in_section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+            next
+        }
+
+        {
+            print
+        }
+    ' "$CODEX_CONFIG_FILE" > "$tmp"
+
+    mv "$tmp" "$CODEX_CONFIG_FILE"
+}
+
 upsert_toml_root_key() {
     local key="$1"
     local value="$2"
@@ -279,10 +382,33 @@ upsert_codex_notify_segment_setting() {
     upsert_toml_key "statusline" "show_notify_segment" "true"
 }
 
+upsert_codex_refresh_interval_setting() {
+    upsert_toml_key "statusline" "refresh_interval" "$REFRESH_INTERVAL"
+}
+
 remove_codex_notify_settings() {
     remove_toml_root_exact_key "notify" "[\"$NOTIFY_BRIDGE_TARGET\"]"
     remove_toml_exact_key "tui" "notifications" "true"
     remove_toml_exact_key "statusline" "show_notify_segment" "true"
+}
+
+remove_codex_statusline_settings() {
+    local key
+
+    for key in \
+        theme \
+        layout \
+        bar_style \
+        segments \
+        refresh_interval \
+        show_git_line \
+        show_overview_line \
+        show_buddy_segment \
+        show_hook_segment \
+        show_notify_segment \
+        two_week_time_format; do
+        remove_toml_key "statusline" "$key"
+    done
 }
 
 check_claude_deps() {
@@ -444,7 +570,7 @@ install_claude() {
 }
 
 install_codex_tmux() {
-    if [[ ! -f "$TMUX_LAUNCHER_SOURCE" || ! -f "$CODEX_STATUSLINE_SOURCE" || ! -f "$CODEX_COMMON_SOURCE" ]]; then
+    if [[ ! -f "$TMUX_LAUNCHER_SOURCE" || ! -f "$CODEX_STATUSLINE_SOURCE" || ! -f "$CODEX_COMMON_SOURCE" || ! -f "$CODEX_CONFIG_CLI_SOURCE" ]]; then
         err "找不到 Codex tmux 脚本，请确认仓库文件完整"
         exit 1
     fi
@@ -463,9 +589,22 @@ install_codex_tmux() {
     cp -f "$CODEX_COMMON_SOURCE" "$CODEX_COMMON_TARGET"
     chmod +x "$CODEX_COMMON_TARGET"
 
+    info "复制 Codex 共享脚本兼容副本 → $CODEX_COMMON_COMPAT_TARGET"
+    cp -f "$CODEX_COMMON_SOURCE" "$CODEX_COMMON_COMPAT_TARGET"
+    chmod +x "$CODEX_COMMON_COMPAT_TARGET"
+
+    info "复制 Codex 配置 CLI → $CODEX_CONFIG_CLI_TARGET"
+    cp -f "$CODEX_CONFIG_CLI_SOURCE" "$CODEX_CONFIG_CLI_TARGET"
+    chmod +x "$CODEX_CONFIG_CLI_TARGET"
+
     info "复制 Codex tmux 状态脚本（兼容层）→ $TMUX_STATUS_TARGET"
     cp -f "$TMUX_STATUS_SOURCE" "$TMUX_STATUS_TARGET"
     chmod +x "$TMUX_STATUS_TARGET"
+
+    if [[ -n "$REFRESH_INTERVAL" ]]; then
+        info "更新 $CODEX_CONFIG_FILE 中的 [statusline].refresh_interval"
+        upsert_codex_refresh_interval_setting
+    fi
 
     ok "Codex tmux 脚本已安装"
 }
@@ -521,8 +660,8 @@ install_codex_notify() {
 }
 
 install_codex_native() {
-    if [[ -n "$THEME" || -n "$LAYOUT" || -n "$BAR_STYLE" ]]; then
-        warn "codex-native 使用 Codex 原生 status line，忽略 --theme / --layout / --bar-style"
+    if [[ -n "$THEME" || -n "$LAYOUT" || -n "$BAR_STYLE" || -n "$REFRESH_INTERVAL" ]]; then
+        warn "codex-native 使用 Codex 原生 status line，忽略 --theme / --layout / --bar-style / --refresh-interval"
     fi
 
     info "更新 $CODEX_CONFIG_FILE 的 [tui].status_line"
@@ -530,9 +669,7 @@ install_codex_native() {
     ok "Codex 原生状态栏已配置"
 }
 
-do_uninstall() {
-    info "正在卸载 AICodingStatusLine..."
-
+uninstall_claude() {
     if [[ -f "$TARGET_SCRIPT" ]]; then
         rm -f "$TARGET_SCRIPT"
         ok "已删除 $TARGET_SCRIPT"
@@ -541,15 +678,18 @@ do_uninstall() {
     if [[ -f "$SETTINGS_FILE" ]] && command -v jq >/dev/null 2>&1; then
         local tmp
         tmp=$(jq 'del(.statusLine)
-            | del(.env.CLAUDE_CODE_STATUSLINE_THEME)
-            | del(.env.CLAUDE_CODE_STATUSLINE_LAYOUT)
-            | del(.env.CLAUDE_CODE_STATUSLINE_BAR_STYLE)
-            | del(.env.CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT)
+            | if .env then
+                .env |= with_entries(select((.key | startswith("CLAUDE_CODE_STATUSLINE_")) | not))
+              else
+                .
+              end
             | if .env == {} then del(.env) else . end' "$SETTINGS_FILE")
         printf '%s\n' "$tmp" > "$SETTINGS_FILE"
         ok "已清理 settings.json"
     fi
+}
 
+uninstall_codex_tmux() {
     if [[ -f "$TMUX_LAUNCHER_TARGET" ]]; then
         rm -f "$TMUX_LAUNCHER_TARGET"
         ok "已删除 $TMUX_LAUNCHER_TARGET"
@@ -565,19 +705,26 @@ do_uninstall() {
         ok "已删除 $CODEX_STATUSLINE_TARGET"
     fi
 
+    if [[ -f "$CODEX_CONFIG_CLI_TARGET" ]]; then
+        rm -f "$CODEX_CONFIG_CLI_TARGET"
+        ok "已删除 $CODEX_CONFIG_CLI_TARGET"
+    fi
+
     if [[ -f "$CODEX_COMMON_TARGET" ]]; then
         rm -f "$CODEX_COMMON_TARGET"
         ok "已删除 $CODEX_COMMON_TARGET"
     fi
 
+    if [[ -f "$CODEX_COMMON_COMPAT_TARGET" ]]; then
+        rm -f "$CODEX_COMMON_COMPAT_TARGET"
+        ok "已删除 $CODEX_COMMON_COMPAT_TARGET"
+    fi
+}
+
+uninstall_codex_hooks() {
     if [[ -f "$HOOK_SIDECAR_TARGET" ]]; then
         rm -f "$HOOK_SIDECAR_TARGET"
         ok "已删除 $HOOK_SIDECAR_TARGET"
-    fi
-
-    if [[ -f "$NOTIFY_BRIDGE_TARGET" ]]; then
-        rm -f "$NOTIFY_BRIDGE_TARGET"
-        ok "已删除 $NOTIFY_BRIDGE_TARGET"
     fi
 
     if [[ -f "$CODEX_HOOKS_FILE" ]]; then
@@ -586,14 +733,73 @@ do_uninstall() {
     fi
 
     if [[ -f "$CODEX_CONFIG_FILE" ]]; then
-        remove_codex_tui_status_line
         remove_codex_hook_settings
-        remove_codex_notify_settings
-        ok "已清理 $CODEX_CONFIG_FILE 中由 AICodingStatusLine 托管的 Codex 配置"
+    fi
+}
+
+uninstall_codex_notify() {
+    if [[ -f "$NOTIFY_BRIDGE_TARGET" ]]; then
+        rm -f "$NOTIFY_BRIDGE_TARGET"
+        ok "已删除 $NOTIFY_BRIDGE_TARGET"
     fi
 
+    if [[ -f "$CODEX_CONFIG_FILE" ]]; then
+        remove_codex_notify_settings
+    fi
+}
+
+uninstall_codex_native() {
+    if [[ -f "$CODEX_CONFIG_FILE" ]]; then
+        remove_codex_tui_status_line
+        ok "已清理 $CODEX_CONFIG_FILE 中的 Codex 原生状态栏配置"
+    fi
+}
+
+cleanup_codex_dirs() {
     rmdir "$CODEX_BIN_DIR" 2>/dev/null || true
     rmdir "$CODEX_DIR" 2>/dev/null || true
+}
+
+uninstall_codex_enhanced() {
+    uninstall_codex_tmux
+    uninstall_codex_hooks
+    uninstall_codex_notify
+
+    if [[ -f "$CODEX_CONFIG_FILE" ]]; then
+        remove_codex_statusline_settings
+        ok "已清理 $CODEX_CONFIG_FILE 中的 Codex 增强状态栏配置"
+    fi
+
+    cleanup_codex_dirs
+}
+
+do_uninstall() {
+    info "正在卸载 AICodingStatusLine..."
+
+    if ! $TARGET_EXPLICIT; then
+        warn "未指定 --target，将按兼容模式同时清理 Claude Code 和 Codex；日常建议使用 --uninstall --target <claude|codex|codex-native|both>"
+        TARGET="both"
+    fi
+
+    case "$TARGET" in
+        claude)
+            uninstall_claude
+            ;;
+        codex)
+            uninstall_codex_enhanced
+            ;;
+        codex-native)
+            uninstall_codex_native
+            uninstall_codex_notify
+            cleanup_codex_dirs
+            ;;
+        both)
+            uninstall_claude
+            uninstall_codex_enhanced
+            uninstall_codex_native
+            cleanup_codex_dirs
+            ;;
+    esac
 
     ok "卸载完成"
     exit 0
@@ -681,5 +887,6 @@ do_install() {
 if $UNINSTALL; then
     do_uninstall
 else
+    maybe_prompt_codex_refresh_interval
     do_install
 fi

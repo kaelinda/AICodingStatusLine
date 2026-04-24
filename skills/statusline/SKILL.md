@@ -15,7 +15,7 @@ description: Use when 用户想查看或修改 Claude Code 状态栏配置（主
 | `/statusline segments show <name>` | 显示指定段落 |
 | `/statusline segments hide <name>` | 隐藏指定段落 |
 | `/statusline segments reset` | 重置段落（显示全部） |
-| `/statusline theme [值]` | 查看/单选切换主题 |
+| `/statusline theme [值]` | 查看/单选切换主题；交互模式支持模拟预览并确认后写入 |
 | `/statusline layout [值]` | 查看/单选切换布局 |
 | `/statusline bar-style [值]` | 查看/单选切换进度条样式 |
 | `/statusline pct-mode [值]` | 查看/单选切换百分比模式 |
@@ -129,7 +129,7 @@ jq 'del(.env["CLAUDE_CODE_STATUSLINE_SEGMENTS"])' ~/.claude/settings.json > /tmp
 ```
 可用主题：
 
-(●) default      蓝色主调，高对比度
+(●) default      蓝青主调，暗色终端高对比
 ( ) forest       绿色主调，柔和自然
 ( ) dracula      紫色主调，暗色背景下表现出色
 ( ) monokai      青色主调，经典代码编辑器风格
@@ -142,7 +142,53 @@ jq 'del(.env["CLAUDE_CODE_STATUSLINE_SEGMENTS"])' ~/.claude/settings.json > /tmp
 输入主题名切换（支持模糊匹配）
 ```
 
-用户输入后执行模糊匹配、写入、展示变更前后对比，并自动触发该主题的 preview 色块展示。
+#### 交互式主题预览流程
+
+当用户使用 `/statusline theme` 且**未带参数**时：
+
+1. 读取当前主题，显示单选列表。
+2. 用户切换候选主题时，**只做模拟预览**：
+   - 输出该主题的 ANSI 色板 preview
+   - 说明“这是模拟预览，尚未写入配置”
+   - 不修改 `~/.claude/settings.json`
+   - 不触发真实 footer 变更
+3. 在预览后提供确认动作：
+   - `confirm`：将当前候选主题写入 `settings.json`
+   - `cancel`：退出并保持原主题不变
+   - 继续输入其他主题名：切到下一个候选并再次模拟预览
+4. 只有在用户明确 `confirm` 后，才执行写入并展示变更前后对比。
+
+可用确认文案示例：
+
+```
+当前预览：dracula
+提示：这是模拟预览，尚未写入真实 footer。
+
+输入：
+- 主题名：继续切换预览
+- confirm：确认写入
+- cancel：取消并保留 forest
+```
+
+#### 带参数时的行为
+
+当用户直接输入 `/statusline theme dracula` 时，仍按“直接切换”处理：执行模糊匹配后直接写入，无需额外确认。
+
+#### 对应本地脚本
+
+这套交互语义现在也有真实可执行脚本可复用：
+
+```bash
+./scripts/statusline_cli.sh theme
+./scripts/statusline_cli.sh theme dracula
+./scripts/statusline_cli.sh preview dracula
+./scripts/statusline_cli.sh show
+```
+
+- `theme`：交互式模拟预览，`confirm` 才写入，`cancel` 保持原值
+- `theme <主题>`：直接写入主题
+- `preview <主题>`：只看 ANSI 色板
+- `show`：查看当前主题
 
 ### `/statusline layout` — 单选 Radio
 
@@ -187,7 +233,7 @@ jq 'del(.env["CLAUDE_CODE_STATUSLINE_SEGMENTS"])' ~/.claude/settings.json > /tmp
 
 ## 子命令有参数：直接切换
 
-例如 `/statusline theme dracula`，直接切换无需交互。
+例如 `/statusline theme dracula`，直接切换无需交互；只有 `/statusline theme` 的无参数交互模式才走“模拟预览 + confirm/cancel”流程。
 
 ### 值验证
 
@@ -302,7 +348,7 @@ fi
 - 修改 `layout` 为 `bars` 且 `bar-style` 是 `ascii` 时：
   > 建议：bars 布局搭配 `dots`、`blocks` 或 `diamonds` 样式效果更佳。
 
-- 修改 `theme` 时，自动触发该主题的 preview 色块展示。
+- 交互式修改 `theme` 时，先做模拟 preview；只有用户 `confirm` 后才真正写入配置。
 
 ---
 
