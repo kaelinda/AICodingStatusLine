@@ -153,7 +153,7 @@ git pull --ff-only
 显示内容：
 
 - `compact`：模型名 | 推理努力 | ctx 使用率 | 可选的 `buddy` / `hook` / `notify` 状态 | git 分支(+N -N) | 5h 剩余额度 | weekly 剩余额度（长周期额度）
-- `bars`：第 1 行 `repo@branch`，第 2 行左侧 `model | eff | ctx`，右侧可选 `buddy` handoff 槽位，第 3 / 4 行为 `5h` 和 `weekly` 进度条
+- `bars`：第 1 行 `repo@branch`（可配置为 `branch:<branch>`），第 2 行左侧 `model | effort | ctx`，右侧可选 `buddy` handoff 槽位，第 3 / 4 行为 `5h` 和 `weekly` 进度条
 
 其中 `ctx` 是 context window 使用率，`weekly` 是长周期额度摘要；在窄宽度下会优先保留百分比，再按空间裁剪时间文本。
 
@@ -182,6 +182,7 @@ layout = "bars"
 bar_style = "blocks"
 refresh_interval = 5
 segments = "ctx,model,git,5h,7d,eff"
+git_display = "branch"
 show_git_line = true
 show_overview_line = true
 show_buddy_segment = true
@@ -419,6 +420,13 @@ show_buddy_segment = true
 
 `left` 模式下进度条填充方向同步反转（剩余多则填充多），颜色始终基于使用量判断（使用少=绿色，使用多=红色）。
 
+### Git 显示模式
+
+| 值 | 显示效果 | Claude Code 环境变量 | Codex 环境变量 / config.toml |
+|----|---------|---------------------|------------------------------|
+| `repo` | **默认**。`repo@branch` | `CLAUDE_CODE_STATUSLINE_GIT_DISPLAY` | `CODEX_STATUSLINE_GIT_DISPLAY` / `git_display` |
+| `branch` | `branch:<branch>` | 同上 | 同上 |
+
 ### Codex bars 行显示开关
 
 仅 Codex 的 `bars` 布局支持控制前两行是否显示：
@@ -426,7 +434,8 @@ show_buddy_segment = true
 | 配置项 | 默认值 | 说明 |
 |--------|--------|------|
 | `CODEX_STATUSLINE_SHOW_GIT_LINE` / `show_git_line` | `true` | 第 1 行 `repo@branch` |
-| `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` / `show_overview_line` | `true` | 第 2 行左侧 `model \| eff \| ctx`，右侧可选 `buddy` |
+| `CODEX_STATUSLINE_GIT_DISPLAY` / `git_display` | `repo` | Git 段显示方式：`repo` 输出 `repo@branch`，`branch` 输出 `branch:<branch>` |
+| `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` / `show_overview_line` | `true` | 第 2 行左侧 `model \| effort \| ctx`，右侧可选 `buddy` |
 
 ### 截图对比
 

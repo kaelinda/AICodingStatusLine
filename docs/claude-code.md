@@ -113,16 +113,16 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 | 段落 | 含义 | 示例 |
 |------|------|------|
 | **Model** | 当前模型名称 | `Opus 4.6` |
-| **CWD@Branch** | 当前目录名 + Git 分支，仓库有改动时追加 `(+N -N)` | `myapp@main (+3 -1)` |
+| **CWD@Branch** | 当前目录名 + Git 分支，仓库有改动时追加 `(+N -N)`；可配置为仅显示分支 | `myapp@main (+3 -1)` / `branch:main` |
 | **ctx** | 当前已用 / 总计 context window + 百分比 | `ctx 15k/200k 7%` |
-| **eff** | 当前推理努力等级 | `low` / `med` / `high` |
+| **eff** | 当前推理努力等级 | `low` / `medium` / `high` |
 | **5h** | 5 小时额度的已用百分比 + 未来重置时间 | `5h 83% 2:00` |
 | **7d** | 7 天额度的已用百分比 + 未来重置时间 | `7d 63% 03/06 08:00` |
 | **extra** | 额外用量积分（启用时才显示） | `extra $12.34/$20.00` |
 
 用量百分比按阈值变色：🟢 <50% → 🟡 ≥50% → 🟠 ≥70% → 🔴 ≥90%
 
-状态栏里的标签会刻意保持简短：`ctx` = context window，`eff` = reasoning effort。
+状态栏里的 `ctx` 表示 context window。
 
 ---
 
@@ -135,6 +135,7 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 | `CLAUDE_CODE_STATUSLINE_SEGMENTS` | (全部) | 逗号分隔的可见段落列表：`model,eff,git,ctx,5h,7d,extra`。未设置则显示全部 |
 | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `bars` | 布局模式：`bars` 或 `compact` |
 | `CLAUDE_CODE_STATUSLINE_BAR_STYLE` | `ascii` | 进度条字符（见 [README 进度条样式](../README.md#-布局与样式)），支持 `custom:X:Y` 自定义 |
+| `CLAUDE_CODE_STATUSLINE_GIT_DISPLAY` | `repo` | Git 段显示方式：`repo` 输出 `repo@branch`，`branch` 输出 `branch:<branch>` |
 | `CLAUDE_CODE_STATUSLINE_THEME` | `default` | 配色主题：`default`、`forest`、`dracula`、`monokai`、`solarized`、`ocean`、`sunset`、`amber`、`rose` |
 | `CLAUDE_CODE_STATUSLINE_MAX_WIDTH` | 终端宽度 | 强制指定宽度预算（正整数） |
 | `CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT` | `%m/%d %H:%M` | 自定义 7d 段落末尾的重置时间格式 |

@@ -12,8 +12,10 @@ $themeName = if ($env:CLAUDE_CODE_STATUSLINE_THEME) { $env:CLAUDE_CODE_STATUSLIN
 $layoutName = if ($env:CLAUDE_CODE_STATUSLINE_LAYOUT) { $env:CLAUDE_CODE_STATUSLINE_LAYOUT } else { "bars" }
 $barStyleName = if ($env:CLAUDE_CODE_STATUSLINE_BAR_STYLE) { $env:CLAUDE_CODE_STATUSLINE_BAR_STYLE } else { "ascii" }
 $pctMode = if ($env:CLAUDE_CODE_STATUSLINE_PCT_MODE) { $env:CLAUDE_CODE_STATUSLINE_PCT_MODE } else { "used" }
+$gitDisplayMode = if ($env:CLAUDE_CODE_STATUSLINE_GIT_DISPLAY) { $env:CLAUDE_CODE_STATUSLINE_GIT_DISPLAY } else { "repo" }
 if ($pctMode -notin @("used", "left")) { $pctMode = "used" }
 if ($layoutName -notin @("compact", "bars")) { $layoutName = "bars" }
+if ($gitDisplayMode -notin @("repo", "branch")) { $gitDisplayMode = "repo" }
 $segmentsRaw = $env:CLAUDE_CODE_STATUSLINE_SEGMENTS
 $segmentsFilterActive = $false
 $visibleSegments = @{}
@@ -368,9 +370,13 @@ function Build-ModelSegment {
 function Build-GitSegment {
     if (-not $script:cwd) { return $null }
 
-    $basePlain = $script:displayDir
-    if ($script:gitBranch) {
+    $branchOnly = $script:gitDisplayMode -eq "branch" -and $script:gitBranch
+    if ($branchOnly) {
+        $basePlain = "branch:$($script:gitBranch)"
+    } elseif ($script:gitBranch) {
         $basePlain = "$($script:displayDir)@$($script:gitBranch)"
+    } else {
+        $basePlain = $script:displayDir
     }
     if ($script:showGitDiff -and $script:gitStat) {
         $basePlain = "$basePlain ($($script:gitStat))"
@@ -381,8 +387,12 @@ function Build-GitSegment {
         return New-Segment "${teal}${truncated}${reset}" $truncated
     }
 
-    $text = "${teal}$($script:displayDir)${reset}"
-    if ($script:gitBranch) {
+    if ($branchOnly) {
+        $text = "${dim}branch:${reset}${branch}$($script:gitBranch)${reset}"
+    } else {
+        $text = "${teal}$($script:displayDir)${reset}"
+    }
+    if (-not $branchOnly -and $script:gitBranch) {
         $text += "${dim}@${reset}${branch}$($script:gitBranch)${reset}"
     }
     if ($script:showGitDiff -and $script:gitStat) {
@@ -403,19 +413,19 @@ function Build-CtxSegment {
 function Build-EffSegment {
     switch ($script:effortLevel) {
         "low" {
-            $plain = "eff low"
+            $plain = "low"
             $valueText = "${strong}low${reset}"
         }
         "medium" {
-            $plain = "eff med"
-            $valueText = "${yellow}med${reset}"
+            $plain = "medium"
+            $valueText = "${yellow}medium${reset}"
         }
         default {
-            $plain = "eff high"
+            $plain = "high"
             $valueText = "${orange}high${reset}"
         }
     }
-    return New-Segment "${dim}eff${reset} $valueText" $plain
+    return New-Segment $valueText $plain
 }
 
 function Build-FiveHourSegment {

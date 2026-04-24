@@ -348,7 +348,7 @@ class StatusLineTests(unittest.TestCase):
         output = self._run_shell(budget=145)
         self.assertIn("Opus 4.6", output)
         self.assertIn("ctx 15k/200k 7%", output)
-        self.assertIn("eff low", output)
+        self.assertIn("low", output)
         self.assertIn("5h 83% 2:00", output)
         self.assertIn(f"7d 63% {DEFAULT_7D_TIME}", output)
         self.assertIn("extra $12.34/$20.00", output)
@@ -365,7 +365,7 @@ class StatusLineTests(unittest.TestCase):
     def test_narrow_budget_drops_7d_and_truncates_git_segment(self):
         output = self._run_shell(budget=72)
         self.assertIn("ctx 15k/200k 7%", output)
-        self.assertIn("eff low", output)
+        self.assertIn("low", output)
         self.assertIn("5h 83%", output)
         self.assertNotIn("7d ", output)
         self.assertNotIn("extra ", output)
@@ -396,12 +396,20 @@ class StatusLineTests(unittest.TestCase):
         output = self._run_shell(budget=130, cwd=repo_dir)
         self.assertRegex(output, r"\(\+\d+ -\d+\)")
 
+    def test_git_display_branch_mode_hides_repo_name(self):
+        output = self._run_shell(
+            budget=130,
+            extra_env={"CLAUDE_CODE_STATUSLINE_GIT_DISPLAY": "branch"},
+        )
+        self.assertIn("branch:codex/feature/for-claude", output)
+        self.assertNotIn("clean-repo@codex/feature/for-claude", output)
+
     def test_powershell_matches_segment_order_when_available(self):
         shell_output = self._run_shell(budget=100)
         pwsh_output = self._run_pwsh(budget=100)
 
         self.assertIn("ctx 15k/200k 7%", pwsh_output)
-        self.assertIn("eff low", pwsh_output)
+        self.assertIn("low", pwsh_output)
         self.assertIn("5h 83% 2:00", pwsh_output)
         self.assertIn(f"7d 63% {DEFAULT_7D_TIME}", pwsh_output)
         self.assertNotIn("extra ", pwsh_output)
@@ -472,7 +480,7 @@ class StatusLineTests(unittest.TestCase):
         self.assertEqual(3, len(lines))
         self.assertIn("Opus 4.6", lines[0])
         self.assertIn("ctx 15k/200k 7%", lines[0])
-        self.assertIn("eff low", lines[0])
+        self.assertIn("low", lines[0])
         self.assertNotIn("5h ", lines[0])
         self.assertNotIn("7d ", lines[0])
         self.assertRegex(lines[1], r"^5h 83% \[[=\-]+\] 2:00$")
@@ -684,7 +692,7 @@ class StatusLineTests(unittest.TestCase):
             "CLAUDE_CODE_STATUSLINE_SEGMENTS": "eff,git,ctx,5h,7d",
         })
         self.assertNotIn("Opus 4.6", output)
-        self.assertIn("eff low", output)
+        self.assertIn("low", output)
         self.assertIn("ctx", output)
 
     def test_segments_filter_hides_5h_and_7d(self):
@@ -700,7 +708,7 @@ class StatusLineTests(unittest.TestCase):
             "CLAUDE_CODE_STATUSLINE_SEGMENTS": "",
         })
         self.assertIn("Opus 4.6", output)
-        self.assertIn("eff low", output)
+        self.assertIn("low", output)
         self.assertIn("5h ", output)
         self.assertIn("7d ", output)
 
@@ -733,7 +741,7 @@ class StatusLineTests(unittest.TestCase):
             "CLAUDE_CODE_STATUSLINE_SEGMENTS": "model, eff, ctx",
         })
         self.assertIn("Opus 4.6", output)
-        self.assertIn("eff low", output)
+        self.assertIn("low", output)
         self.assertIn("ctx", output)
         self.assertNotIn("5h", output)
 
@@ -1002,7 +1010,7 @@ class StatusLineTests(unittest.TestCase):
         output = self._run_tmux_status()
         stripped = strip_ansi(output)
 
-        self.assertIn("eff med", stripped)
+        self.assertIn("medium", stripped)
         self.assertIn("ctx 0/0 0%", stripped)
         self.assertIn("git ", stripped)
         self.assertIn("for-claude", stripped)
@@ -1283,7 +1291,7 @@ class CodexStatusLineTests(unittest.TestCase):
         self.assertLess(output.index("ctx "), output.index("gpt-5.4"))
         self.assertLess(output.index("gpt-5.4"), output.index("git "))
         self.assertLess(output.index("git "), output.index("5h "))
-        self.assertLess(output.index("5h "), output.index("eff high"))
+        self.assertLess(output.index("5h "), output.index("high"))
 
     def test_codex_statusline_reads_segment_order_from_config(self):
         self._write_codex_config('segments = "ctx,model,git,5h,7d,eff"\nlayout = "compact"')
@@ -1299,6 +1307,13 @@ class CodexStatusLineTests(unittest.TestCase):
 
         self.assertIn('theme = "dracula"', config_text)
         self.assertIn("theme 已更新为 dracula", output)
+
+    def test_codex_statusline_cli_git_display_direct_write_updates_config(self):
+        output = self._run_codex_cli("git-display", "branch")
+        config_text = (self.codex_home / "config.toml").read_text()
+
+        self.assertIn('git_display = "branch"', config_text)
+        self.assertIn("git-display 已更新为 branch", output)
 
     def test_codex_statusline_cli_preview_uses_real_renderer(self):
         output = strip_ansi(self._run_codex_cli("preview"))
@@ -1368,11 +1383,11 @@ class CodexStatusLineTests(unittest.TestCase):
 
     def test_codex_effort_display(self):
         output = self._run_codex(budget=150)
-        self.assertIn("eff high", output)
+        self.assertIn("high", output)
 
     def test_codex_effort_env_override(self):
         output = self._run_codex(budget=150, extra_env={"CODEX_EFFORT_LEVEL": "low"})
-        self.assertIn("eff low", output)
+        self.assertIn("low", output)
 
     def test_codex_ctx_segment(self):
         output = self._run_codex(budget=150)
@@ -1772,7 +1787,7 @@ class CodexStatusLineTests(unittest.TestCase):
 
     def test_codex_wide_budget_all_segments(self):
         output = self._run_codex(budget=150)
-        self.assertIn("gpt-5.4 | eff high | ctx 89k/258k 34% | git feat/codex-test", output)
+        self.assertIn("gpt-5.4 | high | ctx 89k/258k 34% | git feat/codex-test", output)
         self.assertNotIn("codex-repo |", output)
         self.assertIn(f"5h {CODEX_5H_LEFT}% left", output)
         self.assertIn(f"weekly {CODEX_WEEKLY_LEFT}% left", output)
@@ -1781,7 +1796,7 @@ class CodexStatusLineTests(unittest.TestCase):
     def test_codex_narrow_budget_truncation(self):
         output = self._run_codex(budget=78)
         self.assertIn("gpt-5.4", output)
-        self.assertIn("eff high", output)
+        self.assertIn("high", output)
         self.assertIn("ctx 89k/258k 34%", output)
         self.assertIn("git ", output)
         self.assertIn(f"5h {CODEX_5H_LEFT}% left", output)
@@ -1816,7 +1831,7 @@ class CodexStatusLineTests(unittest.TestCase):
         lines = output.splitlines()
         self.assertEqual(4, len(lines))
         self.assertEqual("codex-repo@feat/codex-test", lines[0])
-        self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", lines[1])
+        self.assertEqual("gpt-5.4 | high | ctx 89k/258k 34%", lines[1])
         self.assertNotIn("5h ", lines[1])
         self.assertNotIn("weekly ", lines[1])
         self.assertRegex(lines[2], rf"^5h {CODEX_5H_LEFT}% left \[[=\-]+\] \d{{2}}:\d{{2}} reset$")
@@ -1832,7 +1847,7 @@ class CodexStatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
         self.assertEqual(3, len(lines))
-        self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", lines[0])
+        self.assertEqual("gpt-5.4 | high | ctx 89k/258k 34%", lines[0])
         self.assertRegex(lines[1], rf"^5h {CODEX_5H_LEFT}% left \[[=\-]+\] \d{{2}}:\d{{2}} reset$")
         self.assertRegex(lines[2], rf"^weekly {CODEX_WEEKLY_LEFT}% left \[[=\-]+\] {re.escape(CODEX_2W_TIME)}$")
         self.assertEqual(
@@ -1891,9 +1906,9 @@ class CodexStatusLineTests(unittest.TestCase):
         output = self._run_codex(budget=120, layout=None)
         lines = output.splitlines()
         self.assertEqual(3, len(lines))
-        self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", lines[0])
+        self.assertEqual("gpt-5.4 | high | ctx 89k/258k 34%", lines[0])
         self.assertEqual("", self._run_codex(budget=120, layout=None, args=["--line", "1"]).strip())
-        self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", self._run_codex(budget=120, layout=None, args=["--line", "2"]).strip())
+        self.assertEqual("gpt-5.4 | high | ctx 89k/258k 34%", self._run_codex(budget=120, layout=None, args=["--line", "2"]).strip())
 
     def test_codex_bars_layout_visibility_env_overrides_config(self):
         self._write_codex_config(
@@ -1910,7 +1925,7 @@ class CodexStatusLineTests(unittest.TestCase):
         lines = output.splitlines()
         self.assertEqual(4, len(lines))
         self.assertEqual("codex-repo@feat/codex-test", lines[0])
-        self.assertEqual("gpt-5.4 | eff high | ctx 89k/258k 34%", lines[1])
+        self.assertEqual("gpt-5.4 | high | ctx 89k/258k 34%", lines[1])
 
     def test_codex_bars_layout_invalid_visibility_value_falls_back_to_visible(self):
         output = self._run_codex(
@@ -1961,6 +1976,23 @@ class CodexStatusLineTests(unittest.TestCase):
         output = self._run_codex(budget=150)
         self.assertIn("git feat/codex-test", output)
         self.assertRegex(output, r"\(\+\d+ -\d+\)")
+
+    def test_codex_git_display_branch_mode_hides_repo_name(self):
+        output = self._run_codex(
+            budget=150,
+            extra_env={"CODEX_STATUSLINE_GIT_DISPLAY": "branch"},
+        )
+        self.assertIn("branch:feat/codex-test", output)
+        self.assertNotIn("git feat/codex-test", output)
+        self.assertNotIn("codex-repo@feat/codex-test", output)
+
+    def test_codex_bars_git_line_branch_mode_hides_repo_name(self):
+        output = self._run_codex(
+            budget=120,
+            layout="bars",
+            extra_env={"CODEX_STATUSLINE_GIT_DISPLAY": "branch"},
+        )
+        self.assertEqual("branch:feat/codex-test", output.splitlines()[0])
 
     def test_codex_empty_session_dir(self):
         """Session dir exists but has no .jsonl files."""
@@ -2199,14 +2231,14 @@ class CodexStatusLineTests(unittest.TestCase):
             "CODEX_STATUSLINE_SEGMENTS": "eff,ctx,git,5h,7d",
         })
         self.assertNotIn("gpt-5.4", output)
-        self.assertIn("eff", output)
+        self.assertIn("high", output)
 
     def test_codex_segments_filter_empty_shows_all(self):
         output = self._run_codex(budget=150, extra_env={
             "CODEX_STATUSLINE_SEGMENTS": "",
         })
         self.assertIn("gpt-5.4", output)
-        self.assertIn("eff", output)
+        self.assertIn("high", output)
 
     def test_codex_segments_filter_hides_5h_and_7d(self):
         output = self._run_codex(budget=150, extra_env={

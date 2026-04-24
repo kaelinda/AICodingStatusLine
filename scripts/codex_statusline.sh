@@ -35,6 +35,7 @@ session_file_override="${CODEX_STATUSLINE_SESSION_FILE:-}"
 theme_name="${CODEX_STATUSLINE_THEME:-$(statusline_toml_get "$config_file" theme default)}"
 layout_name="${CODEX_STATUSLINE_LAYOUT:-$(statusline_toml_get "$config_file" layout bars)}"
 bar_style_name="${CODEX_STATUSLINE_BAR_STYLE:-$(statusline_toml_get "$config_file" bar_style ascii)}"
+git_display_mode="${CODEX_STATUSLINE_GIT_DISPLAY:-$(statusline_toml_get "$config_file" git_display repo)}"
 
 # Output format: tmux (#[fg=...]) vs ansi (\033[...m)
 # Auto-detect: use tmux format when TMUX is set, unless overridden.
@@ -50,6 +51,10 @@ fi
 case "$layout_name" in
     bars|compact) ;;
     *) layout_name="bars" ;;
+esac
+case "$git_display_mode" in
+    repo|branch) ;;
+    *) git_display_mode="repo" ;;
 esac
 segments_raw="${CODEX_STATUSLINE_SEGMENTS:-$(statusline_toml_get "$config_file" segments "")}"
 segments_filter_active=0
@@ -875,6 +880,9 @@ build_branch_segment() {
     [ -n "$git_branch" ] || return
 
     local label_prefix="git "
+    if [ "$git_display_mode" = "branch" ]; then
+        label_prefix="branch:"
+    fi
     local branch_name="$git_branch"
     if [ "$branch_truncate_width" -gt 0 ]; then
         local branch_name_limit=$(( branch_truncate_width - ${#label_prefix} ))
@@ -886,7 +894,11 @@ build_branch_segment() {
     fi
 
     SEG_PLAIN="${label_prefix}${branch_name}"
-    SEG_TEXT="${dim}git${reset} ${strong}${branch_name}${reset}"
+    if [ "$git_display_mode" = "branch" ]; then
+        SEG_TEXT="${dim}branch:${reset}${strong}${branch_name}${reset}"
+    else
+        SEG_TEXT="${dim}git${reset} ${strong}${branch_name}${reset}"
+    fi
 }
 
 build_git_diff_segment() {
@@ -953,8 +965,8 @@ build_eff_segment() {
             effort_text="${strong}low${reset}"
             ;;
         medium)
-            effort_label="med"
-            effort_text="${yellow}med${reset}"
+            effort_label="medium"
+            effort_text="${yellow}medium${reset}"
             ;;
         *)
             effort_label="high"
@@ -962,8 +974,8 @@ build_eff_segment() {
             ;;
     esac
 
-    SEG_PLAIN="eff ${effort_label}"
-    SEG_TEXT="${dim}eff${reset} ${effort_text}"
+    SEG_PLAIN="${effort_label}"
+    SEG_TEXT="${effort_text}"
 }
 
 build_five_hour_segment() {
@@ -1151,6 +1163,26 @@ build_bars_git_line() {
     local repo_name="$display_dir"
     local branch_name="$git_branch"
     local plain_text text_output
+
+    if [ "$git_display_mode" = "branch" ] && [ -n "$branch_name" ]; then
+        plain_text="branch:${branch_name}"
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            local branch_name_limit=$(( max_width - 7 ))
+            if [ "$branch_name_limit" -le 3 ]; then
+                branch_name="..."
+            elif [ ${#branch_name} -gt "$branch_name_limit" ]; then
+                branch_name=$(truncate_middle "$branch_name" "$branch_name_limit")
+            fi
+            plain_text="branch:${branch_name}"
+        fi
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            plain_text=$(truncate_middle "$plain_text" "$max_width")
+        fi
+        text_output="${dim}branch:${reset}${secondary}${branch_name}${reset}"
+        LINE_PLAIN="$plain_text"
+        LINE_TEXT="$text_output"
+        return
+    fi
 
     if [ -n "$branch_name" ]; then
         plain_text="${repo_name}@${branch_name}"

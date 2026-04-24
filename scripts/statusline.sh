@@ -13,9 +13,14 @@ theme_name="${CLAUDE_CODE_STATUSLINE_THEME:-default}"
 layout_name="${CLAUDE_CODE_STATUSLINE_LAYOUT:-bars}"
 bar_style_name="${CLAUDE_CODE_STATUSLINE_BAR_STYLE:-ascii}"
 pct_mode="${CLAUDE_CODE_STATUSLINE_PCT_MODE:-used}"
+git_display_mode="${CLAUDE_CODE_STATUSLINE_GIT_DISPLAY:-repo}"
 case "$pct_mode" in
     used|left) ;;
     *) pct_mode="used" ;;
+esac
+case "$git_display_mode" in
+    repo|branch) ;;
+    *) git_display_mode="repo" ;;
 esac
 case "$layout_name" in
     bars|compact) ;;
@@ -394,9 +399,14 @@ build_git_segment() {
         return
     fi
 
-    local base_plain="$display_dir"
-    if [ -n "$git_branch" ]; then
+    local base_plain display_branch=0
+    if [ "$git_display_mode" = "branch" ] && [ -n "$git_branch" ]; then
+        base_plain="branch:${git_branch}"
+        display_branch=1
+    elif [ -n "$git_branch" ]; then
         base_plain="${display_dir}@${git_branch}"
+    else
+        base_plain="$display_dir"
     fi
 
     if [ "$show_git_diff" -eq 1 ] && [ -n "$git_stat" ]; then
@@ -412,8 +422,12 @@ build_git_segment() {
     fi
 
     SEG_PLAIN="$base_plain"
-    SEG_TEXT="${teal}${display_dir}${reset}"
-    if [ -n "$git_branch" ]; then
+    if [ "$display_branch" -eq 1 ]; then
+        SEG_TEXT="${dim}branch:${reset}${branch}${git_branch}${reset}"
+    else
+        SEG_TEXT="${teal}${display_dir}${reset}"
+    fi
+    if [ "$display_branch" -ne 1 ] && [ -n "$git_branch" ]; then
         SEG_TEXT+="${dim}@${reset}${branch}${git_branch}${reset}"
     fi
     if [ "$show_git_diff" -eq 1 ] && [ -n "$git_stat" ]; then
@@ -438,8 +452,8 @@ build_eff_segment() {
             effort_text="${strong}low${reset}"
             ;;
         medium)
-            effort_label="med"
-            effort_text="${yellow}med${reset}"
+            effort_label="medium"
+            effort_text="${yellow}medium${reset}"
             ;;
         *)
             effort_label="high"
@@ -447,8 +461,8 @@ build_eff_segment() {
             ;;
     esac
 
-    SEG_PLAIN="eff ${effort_label}"
-    SEG_TEXT="${dim}eff${reset} ${effort_text}"
+    SEG_PLAIN="${effort_label}"
+    SEG_TEXT="${effort_text}"
 }
 
 build_five_hour_segment() {

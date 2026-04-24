@@ -1,6 +1,6 @@
 ---
 name: statusline
-description: Use when 用户想查看或修改 Claude Code 状态栏配置（主题/theme、布局/layout、段落可见性/segments、进度条样式/bar-style、宽度/max-width、时间格式/time-format），或提到 statusline、状态栏等关键词时触发。
+description: Use when 用户想查看或修改 Claude Code 状态栏配置（主题/theme、布局/layout、分支显示/git-display、段落可见性/segments、进度条样式/bar-style、宽度/max-width、时间格式/time-format），或提到 statusline、状态栏等关键词时触发。
 ---
 
 # 状态栏配置管理（statusline）
@@ -18,6 +18,7 @@ description: Use when 用户想查看或修改 Claude Code 状态栏配置（主
 | `/statusline theme [值]` | 查看/单选切换主题；交互模式支持模拟预览并确认后写入 |
 | `/statusline layout [值]` | 查看/单选切换布局 |
 | `/statusline bar-style [值]` | 查看/单选切换进度条样式 |
+| `/statusline git-display [值]` | 查看/单选切换 Git 显示方式 |
 | `/statusline pct-mode [值]` | 查看/单选切换百分比模式 |
 | `/statusline max-width [值\|auto]` | 设置宽度预算 |
 | `/statusline time-format [值]` | 设置 7d 时间格式（strftime） |
@@ -33,6 +34,7 @@ description: Use when 用户想查看或修改 Claude Code 状态栏配置（主
 | theme | `CLAUDE_CODE_STATUSLINE_THEME` | `default`, `forest`, `dracula`, `monokai`, `solarized`, `ocean`, `sunset`, `amber`, `rose` | `default` |
 | layout | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `bars`, `compact` | `bars` |
 | bar-style | `CLAUDE_CODE_STATUSLINE_BAR_STYLE` | `ascii`, `dots`, `squares`, `blocks`, `braille`, `shades`, `diamonds`, `custom:<填充>:<空白>` | `ascii` |
+| git-display | `CLAUDE_CODE_STATUSLINE_GIT_DISPLAY` | `repo`, `branch` | `repo` |
 | pct-mode | `CLAUDE_CODE_STATUSLINE_PCT_MODE` | `used`, `left` | `used` |
 | max-width | `CLAUDE_CODE_STATUSLINE_MAX_WIDTH` | 正整数 或 `auto`（删除该键） | auto |
 | time-format | `CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT` | strftime 格式字符串 | `%m/%d %H:%M` |
@@ -78,7 +80,7 @@ jq -r '.env // {} | to_entries[] | select(.key | startswith("CLAUDE_CODE_STATUSL
 段落配置：
 
 [x] model    模型名（如 Opus 4.6）
-[x] eff      推理努力（eff low/med/high）
+[x] eff      推理努力（low/medium/high）
 [x] git      Git 分支 + diff 统计
 [x] ctx      上下文使用率
 [x] 5h       5 小时限制 + reset 时间

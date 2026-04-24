@@ -399,6 +399,7 @@ remove_codex_statusline_settings() {
         theme \
         layout \
         bar_style \
+        git_display \
         segments \
         refresh_interval \
         show_git_line \

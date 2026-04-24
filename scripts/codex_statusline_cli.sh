@@ -18,6 +18,7 @@ fi
 THEMES=(default forest dracula monokai solarized ocean sunset amber rose)
 LAYOUTS=(bars compact)
 BAR_STYLES=(ascii dots squares blocks braille shades diamonds)
+GIT_DISPLAYS=(repo branch)
 SEGMENT_ORDER=(model eff ctx git 5h 7d hook notify buddy)
 DEFAULT_SEGMENTS_CSV="model,eff,ctx,git,5h,7d"
 
@@ -250,6 +251,8 @@ load_state() {
     theme_value=$(read_statusline_value "theme" "default")
     layout_value=$(read_statusline_value "layout" "bars")
     bar_style_value=$(read_statusline_value "bar_style" "ascii")
+    git_display_value=$(read_statusline_value "git_display" "repo")
+    value_in_list "$git_display_value" "${GIT_DISPLAYS[@]}" || git_display_value="repo"
     segments_value=$(normalize_segments_csv "$(read_statusline_value "segments" "$DEFAULT_SEGMENTS_CSV")")
     show_git_line_value=$(statusline_resolve_bool_setting "$(read_statusline_value "show_git_line" "")" "1")
     show_overview_line_value=$(statusline_resolve_bool_setting "$(read_statusline_value "show_overview_line" "")" "1")
@@ -275,6 +278,12 @@ persist_state() {
         delete_statusline_key "bar_style"
     else
         upsert_statusline_key "bar_style" "\"$bar_style_value\""
+    fi
+
+    if [ "$git_display_value" = "repo" ]; then
+        delete_statusline_key "git_display"
+    else
+        upsert_statusline_key "git_display" "\"$git_display_value\""
     fi
 
     if [ "$segments_value" = "$DEFAULT_SEGMENTS_CSV" ]; then
@@ -322,6 +331,7 @@ print_state_table() {
 - theme: $theme_value
 - layout: $layout_value
 - bar_style: $bar_style_value
+- git_display: $git_display_value
 - segments: $segments_value
 - show_git_line: $( [ "$show_git_line_value" = "1" ] && printf 'true' || printf 'false' )
 - show_overview_line: $( [ "$show_overview_line_value" = "1" ] && printf 'true' || printf 'false' )
@@ -362,6 +372,7 @@ EOF
     CODEX_STATUSLINE_THEME="$theme_value" \
     CODEX_STATUSLINE_LAYOUT="$layout_value" \
     CODEX_STATUSLINE_BAR_STYLE="$bar_style_value" \
+    CODEX_STATUSLINE_GIT_DISPLAY="$git_display_value" \
     CODEX_STATUSLINE_SEGMENTS="$segments_value" \
     CODEX_STATUSLINE_SHOW_GIT_LINE="$show_git_line_value" \
     CODEX_STATUSLINE_SHOW_OVERVIEW_LINE="$show_overview_line_value" \
@@ -385,6 +396,7 @@ print_help() {
   ./scripts/codex_statusline_cli.sh theme <name>
   ./scripts/codex_statusline_cli.sh layout <bars|compact>
   ./scripts/codex_statusline_cli.sh bar-style <name>
+  ./scripts/codex_statusline_cli.sh git-display <repo|branch>
 EOF
 }
 
@@ -414,6 +426,13 @@ set_single_value() {
             }
             bar_style_value="$value"
             ;;
+        git-display)
+            value_in_list "$value" "${GIT_DISPLAYS[@]}" || {
+                printf '无效 git-display: %s\n' "$value" >&2
+                exit 1
+            }
+            git_display_value="$value"
+            ;;
         *)
             printf '未知配置项: %s\n' "$key" >&2
             exit 1
@@ -428,6 +447,7 @@ reset_state() {
     theme_value="default"
     layout_value="bars"
     bar_style_value="ascii"
+    git_display_value="repo"
     segments_value="$DEFAULT_SEGMENTS_CSV"
     show_git_line_value="1"
     show_overview_line_value="1"
@@ -495,6 +515,7 @@ build_menu_rows() {
         "theme"
         "layout"
         "bar_style"
+        "git_display"
         "show_git_line"
         "show_overview_line"
         "show_hook_segment"
@@ -555,6 +576,9 @@ render_configure_screen() {
                 ;;
             bar_style)
                 printf '%s  bar-style        %s\n' "$cursor" "$bar_style_value"
+                ;;
+            git_display)
+                printf '%s  git-display      %s\n' "$cursor" "$git_display_value"
                 ;;
             show_git_line)
                 checked="[ ]"
@@ -638,6 +662,7 @@ run_configure() {
                     theme) theme_value=$(next_list_value "$theme_value" "${THEMES[@]}") ;;
                     layout) layout_value=$(next_list_value "$layout_value" "${LAYOUTS[@]}") ;;
                     bar_style) bar_style_value=$(next_list_value "$bar_style_value" "${BAR_STYLES[@]}") ;;
+                    git_display) git_display_value=$(next_list_value "$git_display_value" "${GIT_DISPLAYS[@]}") ;;
                     segment:*)
                         segment_name="${selected_row#segment:}"
                         segments_value=$(move_segment "$segment_name" right "$segments_value")
@@ -650,6 +675,7 @@ run_configure() {
                     theme) theme_value=$(previous_list_value "$theme_value" "${THEMES[@]}") ;;
                     layout) layout_value=$(previous_list_value "$layout_value" "${LAYOUTS[@]}") ;;
                     bar_style) bar_style_value=$(previous_list_value "$bar_style_value" "${BAR_STYLES[@]}") ;;
+                    git_display) git_display_value=$(previous_list_value "$git_display_value" "${GIT_DISPLAYS[@]}") ;;
                     segment:*)
                         segment_name="${selected_row#segment:}"
                         segments_value=$(move_segment "$segment_name" left "$segments_value")
@@ -662,6 +688,7 @@ run_configure() {
                     theme) theme_value=$(next_list_value "$theme_value" "${THEMES[@]}") ;;
                     layout) layout_value=$(next_list_value "$layout_value" "${LAYOUTS[@]}") ;;
                     bar_style) bar_style_value=$(next_list_value "$bar_style_value" "${BAR_STYLES[@]}") ;;
+                    git_display) git_display_value=$(next_list_value "$git_display_value" "${GIT_DISPLAYS[@]}") ;;
                     show_git_line) show_git_line_value=$(toggle_boolean "$show_git_line_value") ;;
                     show_overview_line) show_overview_line_value=$(toggle_boolean "$show_overview_line_value") ;;
                     show_hook_segment) show_hook_segment_value=$(toggle_boolean "$show_hook_segment_value") ;;
@@ -714,7 +741,7 @@ case "$command" in
     configure)
         run_configure
         ;;
-    theme|layout|bar-style)
+    theme|layout|bar-style|git-display)
         [ -n "${2:-}" ] || {
             print_help >&2
             exit 1

@@ -232,15 +232,15 @@ CODEX_MODEL_NAME=o3 CODEX_STATUSLINE_THEME=dracula codex-tmux
 | 段落 | 含义 | 示例 |
 |------|------|------|
 | **Model** | 当前模型名称 | `gpt-5.4` |
-| **CWD@Branch** | 当前目录名 + Git 分支，仓库有改动时追加 `(+N -N)` | `myapp@main (+3 -1)` |
+| **CWD@Branch** | 当前目录名 + Git 分支，仓库有改动时追加 `(+N -N)`；可配置为仅显示分支 | `myapp@main (+3 -1)` / `branch:main` |
 | **ctx** | 当前已用 / 总计 context window + 百分比 | `ctx 89k/258k 34%` |
-| **eff** | 当前推理努力等级 | `low` / `med` / `high` |
+| **eff** | 当前推理努力等级 | `low` / `medium` / `high` |
 | **5h** | 5 小时速率限制剩余百分比 + 重置时间 | `5h 86% left 13:30` |
 | **weekly** | 长周期额度（secondary rate limit）的剩余百分比 + 绝对重置时间 | `weekly 96% left 3/25 0:00 reset` |
 
 剩余额度按阈值变色：🟢 >50% → 🟡 ≤50% → 🟠 ≤30% → 🔴 ≤10%
 
-状态栏里的标签会刻意保持简短：`ctx` = context window，`eff` = reasoning effort；`weekly` 表示长周期额度摘要。
+状态栏里的 `ctx` 表示 context window；`weekly` 表示长周期额度摘要。
 
 ---
 
@@ -272,9 +272,10 @@ CODEX_MODEL_NAME=o3 CODEX_STATUSLINE_THEME=dracula codex-tmux
 | `CODEX_STATUSLINE_THEME` | `default` | 主题（与 Claude Code 相同的 9 种） |
 | `CODEX_STATUSLINE_LAYOUT` | `bars` | 布局：`bars` 或 `compact` |
 | `CODEX_STATUSLINE_BAR_STYLE` | `ascii` | 进度条样式（见 [README 进度条样式](../README.md#-布局与样式)），支持 `custom:填充:空白` 自定义 |
+| `CODEX_STATUSLINE_GIT_DISPLAY` | `repo` | Git 段显示方式：`repo` 输出 `repo@branch`，`branch` 输出 `branch:<branch>` |
 | `CODEX_STATUSLINE_REFRESH_INTERVAL` | 未设置 | 统一控制 tmux `status-interval` 与 session 用量缓存 TTL；设置后两者都使用该秒数 |
 | `CODEX_STATUSLINE_SHOW_GIT_LINE` | `true` | 仅对 `bars` 布局生效，控制第 1 行 `repo@branch` 是否显示 |
-| `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` | `true` | 仅对 `bars` 布局生效，控制第 2 行概览区是否显示。概览区左侧为 `model \| eff \| ctx`，右侧为可选 `buddy` |
+| `CODEX_STATUSLINE_SHOW_OVERVIEW_LINE` | `true` | 仅对 `bars` 布局生效，控制第 2 行概览区是否显示。概览区左侧为 `model \| effort \| ctx`，右侧为可选 `buddy` |
 | `CODEX_STATUSLINE_SHOW_BUDDY_SEGMENT` | `false` | 显示 buddy handoff 状态。`bars` 布局下位于概览行右侧，`compact` 下退化为普通 segment |
 | `CODEX_STATUSLINE_BUDDY_CACHE_FILE` | `/tmp/codex/statusline-buddy-cache.json` | buddy 状态缓存文件 |
 | `CODEX_STATUSLINE_BUDDY_TTL` | `600` | buddy 缓存可见时长，单位秒 |
@@ -300,6 +301,7 @@ theme = "dracula"
 layout = "bars"
 bar_style = "blocks"
 segments = "ctx,model,git,5h,7d,eff"
+git_display = "branch"
 refresh_interval = 5
 show_git_line = true
 show_overview_line = true
@@ -316,6 +318,7 @@ two_week_time_format = "%y-%m-%d %H:%M"
 | `theme` | `default`、`forest`、`dracula`、`monokai`、`solarized`、`ocean`、`sunset`、`amber`、`rose` | 配色主题 |
 | `layout` | `compact`、`bars` | 布局模式 |
 | `bar_style` | `ascii`、`dots`、`squares`、`blocks`、`braille`、`shades`、`diamonds`、`custom:X:Y` | 进度条样式 |
+| `git_display` | `repo`、`branch` | Git 段显示方式 |
 | `refresh_interval` | 正整数秒 | 统一控制 tmux `status-interval` 与 session 用量缓存 TTL |
 | `show_git_line` | `true`、`false` | 仅对 `bars` 布局生效，控制 git 行是否显示 |
 | `show_overview_line` | `true`、`false` | 仅对 `bars` 布局生效，控制概览行是否显示 |
