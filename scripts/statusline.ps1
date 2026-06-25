@@ -296,6 +296,15 @@ function Get-OAuthToken {
         return $env:CLAUDE_CODE_OAUTH_TOKEN
     }
 
+    $tokenFile = $env:CLAUDE_CODE_OAUTH_TOKEN_FILE
+    if ($tokenFile -and (Test-Path $tokenFile)) {
+        try {
+            $creds = Get-Content $tokenFile -Raw | ConvertFrom-Json
+            $token = $creds.claudeAiOauth.accessToken
+            if ($token -and $token -ne "null") { return $token }
+        } catch {}
+    }
+
     $credPath = Join-Path $env:LOCALAPPDATA "Claude Code\credentials.json"
     if ($env:LOCALAPPDATA -and (Test-Path $credPath)) {
         try {
@@ -430,6 +439,9 @@ function Build-EffSegment {
 
 function Build-FiveHourSegment {
     if (-not $script:usageAvailable) {
+        if ($script:apiAttemptFailed) {
+            return New-Segment "${dim}5h${reset} ${orange}?${reset}" "5h ?"
+        }
         return New-Segment "${dim}5h${reset} ${secondary}-${reset}" "5h -"
     }
 
@@ -447,6 +459,9 @@ function Build-FiveHourSegment {
 
 function Build-SevenDaySegment {
     if (-not $script:usageAvailable) {
+        if ($script:apiAttemptFailed) {
+            return New-Segment "${dim}7d${reset} ${orange}?${reset}" "7d ?"
+        }
         return New-Segment "${dim}7d${reset} ${secondary}-${reset}" "7d -"
     }
 
@@ -474,41 +489,55 @@ function Build-ExtraSegment {
     return New-Segment "${dim}extra${reset} ${strong}enabled${reset}" "extra enabled"
 }
 
+$defaultSegmentOrderCsv = "model,eff,git,ctx,5h,7d,extra"
+$orderedSegments = @()
+
+function Initialize-OrderedSegments {
+    $script:orderedSegments = @()
+    $segmentList = $segmentsRaw
+    if (-not $segmentList) { $segmentList = $defaultSegmentOrderCsv }
+    foreach ($raw in ($segmentList -split ',')) {
+        $name = $raw.Trim()
+        switch ($name) {
+            "model" { if ($script:orderedSegments -notcontains "model") { $script:orderedSegments += "model" } }
+            "eff"   { if ($script:orderedSegments -notcontains "eff")   { $script:orderedSegments += "eff" } }
+            "git"   { if ($script:orderedSegments -notcontains "git")   { $script:orderedSegments += "git" } }
+            "ctx"   { if ($script:orderedSegments -notcontains "ctx")   { $script:orderedSegments += "ctx" } }
+            "5h"    { if ($script:orderedSegments -notcontains "5h")    { $script:orderedSegments += "5h" } }
+            "7d"    { if ($script:orderedSegments -notcontains "7d")    { $script:orderedSegments += "7d" } }
+            "extra" { if ($script:orderedSegments -notcontains "extra") { $script:orderedSegments += "extra" } }
+        }
+    }
+    foreach ($name in ($defaultSegmentOrderCsv -split ',')) {
+        if ($script:orderedSegments -notcontains $name) {
+            $script:orderedSegments += $name
+        }
+    }
+}
+Initialize-OrderedSegments
+
 function Compose-Output {
     $segments = [System.Collections.Generic.List[object]]::new()
     $script:gitSegmentLen = 0
 
-    if (Test-SegmentEnabled "model") {
-        $segments.Add((Build-ModelSegment))
-    }
-    if (Test-SegmentEnabled "eff") {
-        $segments.Add((Build-EffSegment))
-    }
-
-    if (Test-SegmentEnabled "git") {
-        $gitSegment = Build-GitSegment
-        if ($gitSegment) {
-            $script:gitSegmentLen = $gitSegment.Plain.Length
-            $segments.Add($gitSegment)
-        }
-    }
-
-    if (Test-SegmentEnabled "ctx") {
-        $segments.Add((Build-CtxSegment))
-    }
-    if ($script:includeUsageSummary) {
-        if (Test-SegmentEnabled "5h") {
-            $segments.Add((Build-FiveHourSegment))
-        }
-        if ($script:showSevenDay -and (Test-SegmentEnabled "7d")) {
-            $segments.Add((Build-SevenDaySegment))
-        }
-    }
-
-    if ($script:showExtra -and (Test-SegmentEnabled "extra")) {
-        $extraSegment = Build-ExtraSegment
-        if ($extraSegment) {
-            $segments.Add($extraSegment)
+    foreach ($segmentName in $script:orderedSegments) {
+        switch ($segmentName) {
+            "model" { if (Test-SegmentEnabled "model") { $segments.Add((Build-ModelSegment)) } }
+            "eff"   { if (Test-SegmentEnabled "eff")   { $segments.Add((Build-EffSegment)) } }
+            "git"   { if (Test-SegmentEnabled "git") {
+                $gitSegment = Build-GitSegment
+                if ($gitSegment) {
+                    $script:gitSegmentLen = $gitSegment.Plain.Length
+                    $segments.Add($gitSegment)
+                }
+            } }
+            "ctx"   { if (Test-SegmentEnabled "ctx")   { $segments.Add((Build-CtxSegment)) } }
+            "5h"    { if ($script:includeUsageSummary -and (Test-SegmentEnabled "5h")) { $segments.Add((Build-FiveHourSegment)) } }
+            "7d"    { if ($script:includeUsageSummary -and $script:showSevenDay -and (Test-SegmentEnabled "7d")) { $segments.Add((Build-SevenDaySegment)) } }
+            "extra" { if ($script:showExtra -and (Test-SegmentEnabled "extra")) {
+                $extraSegment = Build-ExtraSegment
+                if ($extraSegment) { $segments.Add($extraSegment) }
+            } }
         }
     }
 
@@ -621,9 +650,23 @@ function Render-CompactOutput([bool]$includeUsage) {
 }
 
 function Render-BarsOutput {
+    $outputLines = [System.Collections.Generic.List[string]]::new()
+
+    if ($script:showBarsGitLine -and (Test-SegmentEnabled "git") -and $script:cwd) {
+        $repoName = $script:displayDir
+        $branchName = $script:gitBranch
+        if ($script:gitDisplayMode -eq "branch" -and $branchName) {
+            $gitText = "${dim}branch:${reset}${secondary}$branchName${reset}"
+        } elseif ($branchName) {
+            $gitText = "${secondary}$repoName${reset}${dim}@${reset}${secondary}$branchName${reset}"
+        } else {
+            $gitText = "${secondary}$repoName${reset}"
+        }
+        $outputLines.Add($gitText)
+    }
+
     Render-CompactOutput $false
-    $topLine = $script:outputText
-    $barLines = @()
+    $outputLines.Add($script:outputText)
 
     $suffix = Get-PctSuffix
     if (Test-SegmentEnabled "5h") {
@@ -633,7 +676,7 @@ function Render-BarsOutput {
         } else {
             $fiveLine = Build-UsageBarLine "5h" 0 "--" "n/a" $null
         }
-        $barLines += $fiveLine.Text
+        $outputLines.Add($fiveLine.Text)
     }
 
     if (Test-SegmentEnabled "7d") {
@@ -643,13 +686,10 @@ function Render-BarsOutput {
         } else {
             $sevenLine = Build-UsageBarLine "7d" 0 "--" "n/a" $null
         }
-        $barLines += $sevenLine.Text
+        $outputLines.Add($sevenLine.Text)
     }
 
-    $script:outputText = $topLine
-    foreach ($bl in $barLines) {
-        $script:outputText += "`n" + $bl
-    }
+    $script:outputText = $outputLines -join "`n"
 }
 
 $data = $input | ConvertFrom-Json
@@ -661,7 +701,8 @@ if ($size -eq 0) { $size = 200000 }
 $inputTokens = if ($data.context_window.current_usage.input_tokens) { [long]$data.context_window.current_usage.input_tokens } else { 0 }
 $cacheCreate = if ($data.context_window.current_usage.cache_creation_input_tokens) { [long]$data.context_window.current_usage.cache_creation_input_tokens } else { 0 }
 $cacheRead = if ($data.context_window.current_usage.cache_read_input_tokens) { [long]$data.context_window.current_usage.cache_read_input_tokens } else { 0 }
-$current = $inputTokens + $cacheCreate + $cacheRead
+$cacheDiscount = if ($env:CLAUDE_CODE_STATUSLINE_CACHE_DISCOUNT) { [double]$env:CLAUDE_CODE_STATUSLINE_CACHE_DISCOUNT } else { 1.0 }
+$current = [math]::Round($inputTokens + $cacheCreate * $cacheDiscount + $cacheRead * $cacheDiscount)
 
 $usedTokens = Format-Tokens $current
 $totalTokens = Format-Tokens $size
@@ -690,7 +731,7 @@ if ($cwd) {
 
 $cacheDir = Join-Path $env:TEMP "claude"
 $cacheFile = Join-Path $cacheDir "statusline-usage-cache.json"
-$cacheMaxAge = 60
+$cacheMaxAge = if ($env:CLAUDE_CODE_STATUSLINE_CACHE_TTL) { [int]$env:CLAUDE_CODE_STATUSLINE_CACHE_TTL } else { 60 }
 if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null }
 
 $needsRefresh = $true
@@ -705,7 +746,9 @@ if (Test-Path $cacheFile) {
 
 if ($needsRefresh) {
     $token = Get-OAuthToken
+    $script:apiAttemptFailed = $false
     if ($token) {
+        for ($retry = 0; $retry -lt 2; $retry++) {
         try {
             $headers = @{
                 "Accept" = "application/json"
@@ -715,9 +758,16 @@ if ($needsRefresh) {
                 "User-Agent" = "claude-code/2.1.34"
             }
             $response = Invoke-RestMethod -Uri "https://api.anthropic.com/api/oauth/usage" -Headers $headers -Method Get -TimeoutSec 10 -ErrorAction Stop
-            $usageData = $response | ConvertTo-Json -Depth 10
-            $usageData | Set-Content $cacheFile -Force
-        } catch {}
+            if ($response.five_hour) {
+                $usageData = $response | ConvertTo-Json -Depth 10
+                $usageData | Set-Content $cacheFile -Force
+                break
+            }
+        } catch {
+            if ($retry -eq 0) { Start-Sleep -Seconds 1 }
+        }
+        }
+        if (-not $usageData) { $script:apiAttemptFailed = $true }
     }
     if (-not $usageData -and (Test-Path $cacheFile)) {
         $usageData = Get-Content $cacheFile -Raw
@@ -725,8 +775,10 @@ if ($needsRefresh) {
 }
 
 $usageAvailable = $false
+$script:apiAttemptFailed = $false
 $showSevenDay = $true
 $showExtra = $false
+$extraCacheFile = Join-Path $cacheDir "statusline-extra-cache.json"
 $showFiveHourReset = $false
 $showSevenDayReset = $false
 $showGitDiff = [bool]$gitStat
@@ -764,11 +816,26 @@ if ($usageData) {
                 $extraUsed = "{0:F2}" -f ([double]$usage.extra_usage.used_credits / 100)
                 $extraLimit = "{0:F2}" -f ([double]$usage.extra_usage.monthly_limit / 100)
                 $showExtra = $true
+                @{is_enabled=$true; used_credits=$extraUsed; monthly_limit=$extraLimit} | ConvertTo-Json -Compress | Set-Content $extraCacheFile -Force
             }
         }
     } catch {}
 }
 
+# Fallback to cached extra state when API is unavailable
+if (-not $showExtra -and (Test-Path $extraCacheFile)) {
+    try {
+        $cached = Get-Content $extraCacheFile -Raw | ConvertFrom-Json
+        if ($cached.is_enabled -and $cached.used_credits -and $cached.monthly_limit) {
+            $extraEnabled = $true
+            $extraUsed = $cached.used_credits
+            $extraLimit = $cached.monthly_limit
+            $showExtra = $true
+        }
+    } catch {}
+}
+
+$showBarsGitLine = if ($env:CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE -eq "0") { $false } else { $true }
 $maxWidth = Get-MaxWidth
 if ($layoutName -eq "bars") {
     Render-BarsOutput

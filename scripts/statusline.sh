@@ -38,6 +38,38 @@ segment_enabled() {
     case "$segments_csv" in *,"$1",*) return 0 ;; esac
     return 1
 }
+default_segment_order_csv="model,eff,git,ctx,5h,7d,extra"
+ordered_segments=()
+append_segment_order() {
+    local segment_name="$1"
+    local existing_segment
+
+    for existing_segment in "${ordered_segments[@]}"; do
+        [ "$existing_segment" = "$segment_name" ] && return 0
+    done
+
+    ordered_segments+=("$segment_name")
+}
+
+initialize_segment_order() {
+    local raw_item segment_name
+
+    ordered_segments=()
+
+    for raw_item in $(printf '%s' "${segments_raw:-$default_segment_order_csv}" | tr ',' ' '); do
+        segment_name=$(printf '%s' "$raw_item" | tr -d '[:space:]')
+        case "$segment_name" in
+            model|eff|git|ctx|5h|7d|extra)
+                append_segment_order "$segment_name"
+                ;;
+        esac
+    done
+
+    for raw_item in $(printf '%s' "$default_segment_order_csv" | tr ',' ' '); do
+        append_segment_order "$raw_item"
+    done
+}
+initialize_segment_order
 case "$bar_style_name" in
     dots)
         bar_filled_char='●'
@@ -326,51 +358,59 @@ repeat_char() {
 }
 
 compose_segments() {
+    local segment_name
     segment_texts=()
     segment_plains=()
     GIT_SEGMENT_LEN=0
 
-    if segment_enabled "model"; then
-        build_model_segment
-        add_segment "$SEG_TEXT" "$SEG_PLAIN"
-    fi
-
-    if segment_enabled "eff"; then
-        build_eff_segment
-        add_segment "$SEG_TEXT" "$SEG_PLAIN"
-    fi
-
-    if segment_enabled "git"; then
-        build_git_segment
-        if [ -n "$SEG_PLAIN" ]; then
-            GIT_SEGMENT_LEN=${#SEG_PLAIN}
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-    fi
-
-    if segment_enabled "ctx"; then
-        build_ctx_segment
-        add_segment "$SEG_TEXT" "$SEG_PLAIN"
-    fi
-
-    if [ "$include_usage_summary" -eq 1 ]; then
-        if segment_enabled "5h"; then
-            build_five_hour_segment
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-
-        if [ "$show_seven_day" -eq 1 ] && segment_enabled "7d"; then
-            build_seven_day_segment
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-    fi
-
-    if [ "$show_extra" -eq 1 ] && segment_enabled "extra"; then
-        build_extra_segment
-        if [ -n "$SEG_PLAIN" ]; then
-            add_segment "$SEG_TEXT" "$SEG_PLAIN"
-        fi
-    fi
+    for segment_name in "${ordered_segments[@]}"; do
+        case "$segment_name" in
+            model)
+                segment_enabled "model" || continue
+                build_model_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            eff)
+                segment_enabled "eff" || continue
+                build_eff_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            git)
+                segment_enabled "git" || continue
+                build_git_segment
+                if [ -n "$SEG_PLAIN" ]; then
+                    GIT_SEGMENT_LEN=${#SEG_PLAIN}
+                    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                fi
+                ;;
+            ctx)
+                segment_enabled "ctx" || continue
+                build_ctx_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            5h)
+                [ "$include_usage_summary" -eq 1 ] || continue
+                segment_enabled "5h" || continue
+                build_five_hour_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            7d)
+                [ "$include_usage_summary" -eq 1 ] || continue
+                [ "$show_seven_day" -eq 1 ] || continue
+                segment_enabled "7d" || continue
+                build_seven_day_segment
+                add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            extra)
+                [ "$show_extra" -eq 1 ] || continue
+                segment_enabled "extra" || continue
+                build_extra_segment
+                if [ -n "$SEG_PLAIN" ]; then
+                    add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                fi
+                ;;
+        esac
+    done
 
     COMPOSED_TEXT=""
     COMPOSED_PLAIN=""
@@ -467,8 +507,13 @@ build_eff_segment() {
 
 build_five_hour_segment() {
     if [ "$usage_available" -ne 1 ]; then
-        SEG_PLAIN="5h -"
-        SEG_TEXT="${dim}5h${reset} ${secondary}-${reset}"
+        if [ "$api_attempt_failed" -eq 1 ]; then
+            SEG_PLAIN="5h ?"
+            SEG_TEXT="${dim}5h${reset} ${orange}?${reset}"
+        else
+            SEG_PLAIN="5h -"
+            SEG_TEXT="${dim}5h${reset} ${secondary}-${reset}"
+        fi
         return
     fi
 
@@ -486,8 +531,13 @@ build_five_hour_segment() {
 
 build_seven_day_segment() {
     if [ "$usage_available" -ne 1 ]; then
-        SEG_PLAIN="7d -"
-        SEG_TEXT="${dim}7d${reset} ${secondary}-${reset}"
+        if [ "$api_attempt_failed" -eq 1 ]; then
+            SEG_PLAIN="7d ?"
+            SEG_TEXT="${dim}7d${reset} ${orange}?${reset}"
+        else
+            SEG_PLAIN="7d -"
+            SEG_TEXT="${dim}7d${reset} ${secondary}-${reset}"
+        fi
         return
     fi
 
@@ -636,14 +686,67 @@ render_compact_output() {
     OUTPUT_TEXT="$COMPOSED_TEXT"
 }
 
+build_bars_git_line() {
+    local repo_name="$display_dir"
+    local branch_name="$git_branch"
+    local plain_text text_output
+
+    if [ -z "$cwd" ]; then
+        LINE_PLAIN=""
+        LINE_TEXT=""
+        return
+    fi
+
+    if [ "$git_display_mode" = "branch" ] && [ -n "$branch_name" ]; then
+        plain_text="branch:${branch_name}"
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            branch_name=$(truncate_middle "$branch_name" $(( max_width > 7 ? max_width - 7 : 3 )))
+            plain_text="branch:${branch_name}"
+        fi
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            plain_text=$(truncate_middle "$plain_text" "$max_width")
+        fi
+        text_output="${dim}branch:${reset}${secondary}${plain_text#branch:}${reset}"
+        LINE_PLAIN="$plain_text"
+        LINE_TEXT="$text_output"
+        return
+    fi
+
+    if [ -n "$branch_name" ]; then
+        plain_text="${repo_name}@${branch_name}"
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            branch_name=$(truncate_middle "$branch_name" $(( max_width > ${#repo_name} + 1 ? max_width - ${#repo_name} - 1 : 3 )))
+            plain_text="${repo_name}@${branch_name}"
+        fi
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            plain_text=$(truncate_middle "$plain_text" "$max_width")
+        fi
+        text_output="${secondary}${repo_name}${reset}${dim}@${reset}${secondary}${branch_name}${reset}"
+    else
+        plain_text="$repo_name"
+        if [ ${#plain_text} -gt "$max_width" ]; then
+            plain_text=$(truncate_middle "$plain_text" "$max_width")
+        fi
+        text_output="${secondary}${plain_text}${reset}"
+    fi
+
+    LINE_PLAIN="$plain_text"
+    LINE_TEXT="$text_output"
+}
+
 render_bars_output() {
     local full_five_time="$five_hour_reset"
     local full_seven_time="$seven_day_reset"
     local short_seven_time="$seven_day_date"
+    local output_lines=()
+
+    if [ "$show_bars_git_line" -eq 1 ] && segment_enabled "git" && [ -n "$cwd" ]; then
+        build_bars_git_line
+        [ -n "$LINE_TEXT" ] && output_lines+=("$LINE_TEXT")
+    fi
 
     render_compact_output 0
-    local top_line="$OUTPUT_TEXT"
-    local bar_lines=()
+    output_lines+=("$OUTPUT_TEXT")
 
     if segment_enabled "5h"; then
         local five_disp suffix
@@ -654,7 +757,7 @@ render_bars_output() {
         else
             build_usage_bar_line "5h" 0 "--" "n/a" ""
         fi
-        bar_lines+=("$LINE_TEXT")
+        output_lines+=("$LINE_TEXT")
     fi
 
     if segment_enabled "7d"; then
@@ -666,12 +769,13 @@ render_bars_output() {
         else
             build_usage_bar_line "7d" 0 "--" "n/a" ""
         fi
-        bar_lines+=("$LINE_TEXT")
+        output_lines+=("$LINE_TEXT")
     fi
 
-    OUTPUT_TEXT="$top_line"
-    for bl in "${bar_lines[@]}"; do
-        OUTPUT_TEXT+=$'\n'"$bl"
+    OUTPUT_TEXT=""
+    for line in "${output_lines[@]}"; do
+        [ -n "$OUTPUT_TEXT" ] && OUTPUT_TEXT+=$'\n'
+        OUTPUT_TEXT+="$line"
     done
 }
 
@@ -681,6 +785,14 @@ get_oauth_token() {
     if [ -n "$CLAUDE_CODE_OAUTH_TOKEN" ]; then
         printf "%s" "$CLAUDE_CODE_OAUTH_TOKEN"
         return 0
+    fi
+
+    if [ -n "$CLAUDE_CODE_OAUTH_TOKEN_FILE" ] && [ -f "$CLAUDE_CODE_OAUTH_TOKEN_FILE" ]; then
+        token=$(jq -r '.claudeAiOauth.accessToken // empty' "$CLAUDE_CODE_OAUTH_TOKEN_FILE" 2>/dev/null)
+        if [ -n "$token" ] && [ "$token" != "null" ]; then
+            printf "%s" "$token"
+            return 0
+        fi
     fi
 
     if command -v security >/dev/null 2>&1; then
@@ -801,7 +913,8 @@ EOF
 
 [ "$size" -eq 0 ] 2>/dev/null && size=200000
 
-current=$(( input_tokens + cache_create + cache_read ))
+cache_discount="${CLAUDE_CODE_STATUSLINE_CACHE_DISCOUNT:-1.0}"
+current=$(LC_NUMERIC=C awk -v i="$input_tokens" -v cc="$cache_create" -v cr="$cache_read" -v d="$cache_discount" 'BEGIN {printf "%.0f", i + cc*d + cr*d}')
 
 used_tokens=$(format_tokens "$current")
 total_tokens=$(format_tokens "$size")
@@ -836,7 +949,7 @@ if [ -n "$cwd" ]; then
 fi
 
 cache_file="/tmp/claude/statusline-usage-cache.json"
-cache_max_age=60
+cache_max_age="${CLAUDE_CODE_STATUSLINE_CACHE_TTL:-60}"
 mkdir -p /tmp/claude
 
 needs_refresh=true
@@ -855,24 +968,34 @@ fi
 if $needs_refresh; then
     touch "$cache_file" 2>/dev/null
     token=$(get_oauth_token)
+    api_attempt_failed=0
     if [ -n "$token" ] && [ "$token" != "null" ]; then
-        response=$(curl -s --max-time 10 \
-            -H "Accept: application/json" \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer $token" \
-            -H "anthropic-beta: oauth-2025-04-20" \
-            -H "User-Agent: claude-code/2.1.34" \
-            "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
-        if [ -n "$response" ] && printf '%s' "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
-            usage_data="$response"
-            printf '%s' "$response" > "$cache_file"
-        fi
+        _retry=0
+        while [ "$_retry" -lt 2 ]; do
+            response=$(curl -s --max-time 10 \
+                -H "Accept: application/json" \
+                -H "Content-Type: application/json" \
+                -H "Authorization: Bearer $token" \
+                -H "anthropic-beta: oauth-2025-04-20" \
+                -H "User-Agent: claude-code/2.1.34" \
+                "https://api.anthropic.com/api/oauth/usage" 2>/dev/null)
+            if [ -n "$response" ] && printf '%s' "$response" | jq -e '.five_hour' >/dev/null 2>&1; then
+                usage_data="$response"
+                printf '%s' "$response" > "$cache_file"
+                break
+            fi
+            _retry=$(( _retry + 1 ))
+            [ "$_retry" -lt 2 ] && sleep 1
+        done
+        [ -z "$usage_data" ] && api_attempt_failed=1
     fi
 fi
 
 usage_available=0
+api_attempt_failed="${api_attempt_failed:-0}"
 show_seven_day=1
 show_extra=0
+extra_cache_file="/tmp/claude/statusline-extra-cache.json"
 show_five_hour_reset=0
 show_seven_day_reset=0
 show_git_diff=0
@@ -924,10 +1047,26 @@ EOF
         extra_used=$(LC_NUMERIC=C awk -v value="${extra_used_cents:-0}" 'BEGIN {printf "%.2f", value / 100}')
         extra_limit=$(LC_NUMERIC=C awk -v value="${extra_limit_cents:-0}" 'BEGIN {printf "%.2f", value / 100}')
         show_extra=1
+        mkdir -p /tmp/claude 2>/dev/null
+        printf '{"is_enabled":true,"used_credits":"%s","monthly_limit":"%s"}\n' "$extra_used" "$extra_limit" > "$extra_cache_file"
+    fi
+fi
+
+# Fallback: use cached extra state when API is unavailable
+if [ "$show_extra" -eq 0 ] && [ -f "$extra_cache_file" ]; then
+    cached_extra=$(cat "$extra_cache_file" 2>/dev/null)
+    if printf '%s' "$cached_extra" | jq -e '.is_enabled == true' >/dev/null 2>&1; then
+        extra_used=$(printf '%s' "$cached_extra" | jq -r '.used_credits // ""' 2>/dev/null)
+        extra_limit=$(printf '%s' "$cached_extra" | jq -r '.monthly_limit // ""' 2>/dev/null)
+        if [ -n "$extra_used" ] && [ -n "$extra_limit" ]; then
+            extra_enabled="true"
+            show_extra=1
+        fi
     fi
 fi
 
 [ -n "$git_stat" ] && show_git_diff=1
+show_bars_git_line="${CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE:-1}"
 max_width=$(get_max_width)
 
 if [ "$layout_name" = "bars" ]; then

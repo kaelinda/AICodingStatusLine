@@ -168,6 +168,40 @@ EOF
     printf '\n'
 }
 
+build_preview() {
+    local preview_theme="$1"
+    local script_dir cache_dir mock_input mock_usage
+    local orig_cache
+
+    script_dir="$(cd "$(dirname "$0")" && pwd)"
+    cache_dir="/tmp/claude"
+    mkdir -p "$cache_dir"
+
+    mock_input=$(printf '{"cwd":"%s","model":{"display_name":"Opus 4.6"},"context_window":{"context_window_size":200000,"current_usage":{"input_tokens":15000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}' "$PWD")
+
+    mock_usage='{"five_hour":{"utilization":83,"resets_at":4102444800},"seven_day":{"utilization":63,"resets_at":4102444800},"extra_usage":{"is_enabled":true,"used_credits":1234,"monthly_limit":2000}}'
+
+    if [ -f "$cache_dir/statusline-usage-cache.json" ]; then
+        orig_cache=$(cat "$cache_dir/statusline-usage-cache.json")
+    else
+        orig_cache=""
+    fi
+
+    printf '%s' "$mock_usage" > "$cache_dir/statusline-usage-cache.json"
+
+    printf '真实状态栏预览（%s 主题）：\n\n' "$preview_theme"
+    printf '%s' "$mock_input" | CLAUDE_CODE_STATUSLINE_THEME="$preview_theme" \
+        CLAUDE_CODE_EFFORT_LEVEL=high \
+        /bin/bash "$script_dir/statusline.sh" 2>/dev/null || true
+    printf '\n'
+
+    if [ -n "$orig_cache" ]; then
+        printf '%s' "$orig_cache" > "$cache_dir/statusline-usage-cache.json"
+    else
+        rm -f "$cache_dir/statusline-usage-cache.json"
+    fi
+}
+
 show_current_theme() {
     local theme
     theme=$(current_theme)
@@ -193,6 +227,7 @@ interactive_theme() {
         printf '\n当前主题：%s\n' "$original_theme"
         printf '当前预览：%s\n' "$candidate_theme"
         preview_theme "$candidate_theme"
+        build_preview "$candidate_theme"
         printf '提示：这是模拟预览，尚未写入真实 footer。\n'
         printf '输入主题名继续预览，或输入 confirm / cancel: '
 
@@ -238,9 +273,15 @@ case "$command" in
         ;;
     preview)
         if [ "${2:-}" != "" ]; then
-            preview_theme "$(resolve_theme "$2")"
+            resolved=$(resolve_theme "$2")
+            preview_theme "$resolved"
+            printf '\n'
+            build_preview "$resolved"
         else
-            preview_theme "$(current_theme)"
+            current=$(current_theme)
+            preview_theme "$current"
+            printf '\n'
+            build_preview "$current"
         fi
         ;;
     theme)

@@ -188,12 +188,17 @@ class StatusLineTests(unittest.TestCase):
         self.usage_dir = Path("/tmp/claude")
         self.usage_dir.mkdir(parents=True, exist_ok=True)
         self.usage_cache = self.usage_dir / "statusline-usage-cache.json"
+        self.extra_cache = self.usage_dir / "statusline-extra-cache.json"
         self.original_cache = None
         if self.usage_cache.exists():
             self.original_cache = self.usage_cache.read_text()
         self.addCleanup(self._restore_cache)
 
     def _restore_cache(self) -> None:
+        try:
+            self.extra_cache.unlink()
+        except FileNotFoundError:
+            pass
         if self.original_cache is None:
             try:
                 self.usage_cache.unlink()
@@ -241,6 +246,12 @@ class StatusLineTests(unittest.TestCase):
             env["CLAUDE_CODE_STATUSLINE_MAX_WIDTH"] = str(budget)
         if extra_env:
             env.update(extra_env)
+
+        # Clean any stale extra cache from previous tests
+        try:
+            self.extra_cache.unlink()
+        except FileNotFoundError:
+            pass
 
         if usage is True:
             self._write_usage(SAMPLE_USAGE)
@@ -464,7 +475,7 @@ class StatusLineTests(unittest.TestCase):
     def test_default_layout_is_bars(self):
         output = self._run_shell(budget=120, layout=None)
         lines = output.splitlines()
-        self.assertEqual(3, len(lines))
+        self.assertEqual(4, len(lines))
 
     def test_powershell_script_source_is_ascii_only_for_windows_compat(self):
         script_bytes = PS_SCRIPT.read_bytes()
@@ -477,14 +488,15 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertIn("Opus 4.6", lines[0])
-        self.assertIn("ctx 15k/200k 7%", lines[0])
-        self.assertIn("low", lines[0])
-        self.assertNotIn("5h ", lines[0])
-        self.assertNotIn("7d ", lines[0])
-        self.assertRegex(lines[1], r"^5h 83% \[[=\-]+\] 2:00$")
-        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\] {re.escape(DEFAULT_7D_TIME)}$")
+        self.assertEqual(4, len(lines))
+        self.assertIn("clean-repo@codex/feature/for-claude", lines[0])
+        self.assertIn("Opus 4.6", lines[1])
+        self.assertIn("ctx 15k/200k 7%", lines[1])
+        self.assertIn("low", lines[1])
+        self.assertNotIn("5h ", lines[1])
+        self.assertNotIn("7d ", lines[1])
+        self.assertRegex(lines[2], r"^5h 83% \[[=\-]+\] 2:00$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\] {re.escape(DEFAULT_7D_TIME)}$")
 
     def test_bars_layout_narrow_width_keeps_bar_and_drops_time_first(self):
         output = self._run_shell(
@@ -493,11 +505,11 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertRegex(lines[1], r"^5h 83% \[[=\-]+\]$")
-        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
-        self.assertIn("[", lines[1])
+        self.assertEqual(4, len(lines))
+        self.assertRegex(lines[2], r"^5h 83% \[[=\-]+\]$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
         self.assertIn("[", lines[2])
+        self.assertIn("[", lines[3])
 
     def test_custom_seven_day_time_format_applies_in_compact_layout(self):
         output = self._run_shell(
@@ -525,7 +537,7 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\] {re.escape(CUSTOM_7D_TIME)}$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\] {re.escape(CUSTOM_7D_TIME)}$")
 
     def test_bars_layout_narrow_width_uses_short_default_date_for_seven_day(self):
         output = self._run_shell(
@@ -537,7 +549,7 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertRegex(lines[2], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
+        self.assertRegex(lines[3], rf"^7d 63% \[[=\-]+\]( {re.escape(DEFAULT_7D_SHORT_DATE)})?$")
 
     def test_bars_layout_without_usage_keeps_placeholders(self):
         output = self._run_shell(
@@ -547,9 +559,9 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertEqual("5h -- [----------] n/a", lines[1])
-        self.assertEqual("7d -- [----------] n/a", lines[2])
+        self.assertEqual(4, len(lines))
+        self.assertEqual("5h -- [----------] n/a", lines[2])
+        self.assertEqual("7d -- [----------] n/a", lines[3])
 
     def test_bars_layout_dots_style_changes_bar_glyphs(self):
         output = self._run_shell(
@@ -561,11 +573,11 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertRegex(lines[1], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
-        self.assertRegex(lines[2], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
-        self.assertIn("●", lines[1])
-        self.assertIn("○", lines[1])
+        self.assertEqual(4, len(lines))
+        self.assertRegex(lines[2], rf"^5h 83% \[{DOTS_BAR_RE}\] 2:00$")
+        self.assertRegex(lines[3], rf"^7d 63% \[{DOTS_BAR_RE}\] {re.escape(DEFAULT_7D_TIME)}$")
+        self.assertIn("●", lines[2])
+        self.assertIn("○", lines[2])
 
     def test_bars_layout_squares_style_keeps_placeholders(self):
         output = self._run_shell(
@@ -578,9 +590,8 @@ class StatusLineTests(unittest.TestCase):
         )
         lines = output.splitlines()
 
-        self.assertEqual(3, len(lines))
-        self.assertEqual("5h -- [□□□□□□□□□□] n/a", lines[1])
-        self.assertEqual("7d -- [□□□□□□□□□□] n/a", lines[2])
+        self.assertEqual(4, len(lines))
+        self.assertEqual("5h -- [□□□□□□□□□□] n/a", lines[2])
 
     def test_unknown_bar_style_falls_back_to_ascii(self):
         default_output = self._run_shell(
@@ -726,7 +737,7 @@ class StatusLineTests(unittest.TestCase):
             "CLAUDE_CODE_STATUSLINE_SEGMENTS": "model,eff,git,ctx,7d",
         })
         lines = output.splitlines()
-        self.assertEqual(2, len(lines))
+        self.assertEqual(3, len(lines))
         self.assertNotIn("5h", output)
 
     def test_segments_filter_bars_hides_both_bars(self):
@@ -734,7 +745,7 @@ class StatusLineTests(unittest.TestCase):
             "CLAUDE_CODE_STATUSLINE_SEGMENTS": "model,eff,git,ctx",
         })
         lines = output.splitlines()
-        self.assertEqual(1, len(lines))
+        self.assertEqual(2, len(lines))
 
     def test_segments_filter_with_spaces(self):
         output = self._run_shell(budget=150, extra_env={
@@ -744,6 +755,22 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("low", output)
         self.assertIn("ctx", output)
         self.assertNotIn("5h", output)
+
+    def test_segments_order_reorders_output(self):
+        """CLAUDE_CODE_STATUSLINE_SEGMENTS with reordered values changes display order."""
+        default_output = self._run_shell(budget=200)
+        reordered_output = self._run_shell(budget=200, extra_env={
+            "CLAUDE_CODE_STATUSLINE_SEGMENTS": "ctx,model,5h,eff,git,7d",
+        })
+        self.assertNotEqual(default_output, reordered_output)
+        ctx_pos = reordered_output.index("ctx 15k")
+        model_pos = reordered_output.index("Opus 4.6")
+        self.assertLess(ctx_pos, model_pos,
+            "ctx should appear before model when segments order is ctx,model,...")
+        five_pos = reordered_output.index("5h 83%")
+        eff_pos = reordered_output.index(" low ")
+        self.assertLess(five_pos, eff_pos,
+            "5h should appear before eff when segments order is ctx,model,5h,eff,...")
 
     def test_past_reset_time_is_hidden(self):
         past_usage = {
@@ -769,9 +796,9 @@ class StatusLineTests(unittest.TestCase):
             extra_env={"CLAUDE_CODE_STATUSLINE_LAYOUT": "bars"},
         )
         lines = output.splitlines()
-        self.assertEqual(3, len(lines))
-        self.assertRegex(lines[1], r"^5h 83% \[[=\-]+\]$")
-        self.assertRegex(lines[2], r"^7d 63% \[[=\-]+\]$")
+        self.assertEqual(4, len(lines))
+        self.assertRegex(lines[2], r"^5h 83% \[[=\-]+\]$")
+        self.assertRegex(lines[3], r"^7d 63% \[[=\-]+\]$")
 
     def test_install_script_codex_target_installs_tmux_assets(self):
         install_home, _ = self._run_install("--target", "codex")
@@ -847,6 +874,38 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("当前预览：dracula", output)
         self.assertIn("模拟预览", output)
         self.assertIn("theme: forest → dracula", output)
+
+    def test_statusline_cli_preview_shows_swatches_and_full_status_bar(self):
+        """preview command shows color swatches AND a rendered status bar preview."""
+        self._write_claude_settings({
+            "env": {
+                "CLAUDE_CODE_STATUSLINE_THEME": "forest",
+            }
+        })
+
+        output = self._run_statusline_cli("preview", "dracula")
+
+        self.assertIn("dracula 主题色板", output)
+        self.assertIn("真实状态栏预览（dracula 主题）", output)
+        self.assertIn("Opus 4.6", output)
+        self.assertIn("high", output)
+        self.assertIn("ctx", output)
+        self.assertIn("5h", output)
+        self.assertIn("7d", output)
+
+    def test_statusline_cli_preview_default_theme_shows_current_theme(self):
+        """preview without args shows the current theme's status bar."""
+        self._write_claude_settings({
+            "env": {
+                "CLAUDE_CODE_STATUSLINE_THEME": "forest",
+            }
+        })
+
+        output = self._run_statusline_cli("preview")
+
+        self.assertIn("forest 主题色板", output)
+        self.assertIn("真实状态栏预览（forest 主题）", output)
+        self.assertIn("Opus 4.6", output)
 
     def test_install_script_codex_target_installs_dynamic_bars_tmux_launcher(self):
         install_home, _ = self._run_install("--target", "codex")
