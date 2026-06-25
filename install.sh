@@ -6,7 +6,7 @@
 #   --layout <mode>   设置布局 (compact/bars)
 #   --bar-style <s>   设置进度条样式 (ascii/dots/squares)
 #   --refresh-interval <sec> 设置 Codex 刷新频率（tmux 重绘 + session 缓存 TTL）
-#   --interactive     交互式询问可选配置（含 Codex 刷新频率）
+#   --interactive     交互式询问可选配置（Claude 主题/布局 + Codex 刷新频率）
 #   --with-hooks      为 Codex 安装实验性 hooks sidecar
 #   --with-notify     为 Codex 安装 notify bridge
 #   --uninstall       卸载状态栏（建议配合 --target 使用）
@@ -151,6 +151,70 @@ maybe_prompt_codex_refresh_interval() {
     fi
 
     prompt_codex_refresh_interval
+}
+
+prompt_claude_config() {
+    local value
+
+    if [[ -z "$THEME" ]]; then
+        echo
+        echo "选择主题（直接回车使用 default）:"
+        printf "  %-10s %s\n" "default"  "蓝青主调，暗色终端高对比"
+        printf "  %-10s %s\n" "forest"   "绿色主调，柔和自然"
+        printf "  %-10s %s\n" "dracula"  "紫色主调，暗色表现出色"
+        printf "  %-10s %s\n" "monokai"  "青色主调，经典代码编辑器风格"
+        printf "  %-10s %s\n" "solarized""蓝色主调，低对比度护眼"
+        printf "  %-10s %s\n" "ocean"    "青蓝主调，清爽海洋风"
+        printf "  %-10s %s\n" "sunset"   "珊瑚橙主调，温暖日落氛围"
+        printf "  %-10s %s\n" "amber"    "琥珀金主调，沉稳大地色"
+        printf "  %-10s %s\n" "rose"     "玫瑰粉主调，柔和优雅"
+        printf "主题: "
+        IFS= read -r value
+        value=$(printf '%s' "$value" | tr -d '[:space:]')
+        case "$value" in
+            forest|dracula|monokai|solarized|ocean|sunset|amber|rose) THEME="$value" ;;
+            default|"") THEME="default" ;;
+            *) warn "无效主题，使用 default"; THEME="default" ;;
+        esac
+    fi
+
+    if [[ -z "$LAYOUT" ]]; then
+        echo
+        printf "布局模式（直接回车使用 bars）:\n"
+        printf "  %-10s %s\n" "bars"    "多行布局：git 行 + 概览行 + 5h/7d 进度条（默认）"
+        printf "  %-10s %s\n" "compact" "所有信息压缩在一行"
+        printf "布局: "
+        IFS= read -r value
+        value=$(printf '%s' "$value" | tr -d '[:space:]')
+        case "$value" in compact) LAYOUT="compact" ;; *) LAYOUT="bars" ;; esac
+    fi
+
+    if [[ -z "$BAR_STYLE" ]]; then
+        echo
+        printf "进度条样式（直接回车使用 ascii）:\n"
+        printf "  %-10s %s\n" "ascii"   "[====-----]"
+        printf "  %-10s %s\n" "dots"    "[●●●●○○○○○]"
+        printf "  %-10s %s\n" "squares" "[■■■■□□□□□]"
+        printf "  %-10s %s\n" "blocks"  "[████░░░░░]"
+        printf "进度条: "
+        IFS= read -r value
+        value=$(printf '%s' "$value" | tr -d '[:space:]')
+        case "$value" in
+            dots|squares|blocks) BAR_STYLE="$value" ;;
+            ascii|"") BAR_STYLE="ascii" ;;
+            *) warn "无效进度条样式，使用 ascii"; BAR_STYLE="ascii" ;;
+        esac
+    fi
+}
+
+maybe_prompt_claude_config() {
+    [[ "$TARGET" == "claude" || "$TARGET" == "both" ]] || return 0
+
+    if ! $INTERACTIVE; then
+        return 0
+    fi
+
+    prompt_claude_config
 }
 
 if [[ -n "$REFRESH_INTERVAL" ]] && ! is_positive_int "$REFRESH_INTERVAL"; then
@@ -881,13 +945,32 @@ do_install() {
         printf "  hooks.json: ${CYAN}%s${RESET}\n" "$CODEX_HOOKS_FILE"
     fi
 
-    printf "\n  ${BOLD}示例:${RESET}\n"
-    printf "    ./install.sh --target both --theme dracula --layout bars --bar-style dots\n\n"
+    printf "\n"
+    if [[ "$TARGET" == "claude" || "$TARGET" == "both" ]]; then
+        printf "  ${BOLD}快速配置：${RESET}\n"
+        printf "    在 Claude Code 中输入 ${CYAN}/statusline${RESET} 交互式配置\n"
+        printf "    或运行 ${CYAN}./scripts/statusline_cli.sh${RESET}\n"
+        printf "      ${CYAN}preview${RESET}        实时预览主题效果\n"
+        printf "      ${CYAN}theme${RESET}           交互式主题选择\n"
+        printf "      ${CYAN}theme dracula${RESET}   直接切换主题\n"
+        printf "      ${CYAN}show${RESET}            查看当前配置\n"
+    fi
+    if [[ "$TARGET" == "codex" || "$TARGET" == "both" ]]; then
+        printf "  ${BOLD}Codex 配置：${RESET}\n"
+        printf "    运行 ${CYAN}codex-statusline-config${RESET} 交互式面板\n"
+        printf "    或编辑 ${CYAN}~/.codex/config.toml${RESET}\n"
+    fi
+    printf "\n  ${BOLD}常用环境变量：${RESET}\n"
+    printf "    ${CYAN}CLAUDE_CODE_STATUSLINE_THEME=dracula${RESET}\n"
+    printf "    ${CYAN}CLAUDE_CODE_STATUSLINE_LAYOUT=compact${RESET}\n"
+    printf "    ${CYAN}CLAUDE_CODE_STATUSLINE_CACHE_TTL=120${RESET}\n"
+    printf "\n  文档 → ${CYAN}docs/claude-code.md${RESET}  ${CYAN}docs/codex-cli.md${RESET}\n\n"
 }
 
 if $UNINSTALL; then
     do_uninstall
 else
     maybe_prompt_codex_refresh_interval
+    maybe_prompt_claude_config
     do_install
 fi
