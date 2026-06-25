@@ -132,13 +132,18 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `CLAUDE_CODE_STATUSLINE_SEGMENTS` | (全部) | 逗号分隔的可见段落列表：`model,eff,git,ctx,5h,7d,extra`。未设置则显示全部 |
+| `CLAUDE_CODE_STATUSLINE_SEGMENTS` | (全部) | 逗号分隔的段落列表（同时控制显示顺序）：`model,eff,git,ctx,5h,7d,extra`。未设置则显示全部 |
 | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `bars` | 布局模式：`bars` 或 `compact` |
 | `CLAUDE_CODE_STATUSLINE_BAR_STYLE` | `ascii` | 进度条字符（见 [README 进度条样式](../README.md#-布局与样式)），支持 `custom:X:Y` 自定义 |
 | `CLAUDE_CODE_STATUSLINE_GIT_DISPLAY` | `repo` | Git 段显示方式：`repo` 输出 `repo@branch`，`branch` 输出 `branch:<branch>` |
 | `CLAUDE_CODE_STATUSLINE_THEME` | `default` | 配色主题：`default`、`forest`、`dracula`、`monokai`、`solarized`、`ocean`、`sunset`、`amber`、`rose` |
 | `CLAUDE_CODE_STATUSLINE_MAX_WIDTH` | 终端宽度 | 强制指定宽度预算（正整数） |
 | `CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT` | `%m/%d %H:%M` | 自定义 7d 段落末尾的重置时间格式 |
+| `CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE` | `true` | bars 布局中是否显示独立的 git 信息行（`repo@branch`） |
+| `CLAUDE_CODE_STATUSLINE_CACHE_TTL` | `60` | API 缓存有效期（秒），调高减少请求频率 |
+| `CLAUDE_CODE_STATUSLINE_CACHE_DISCOUNT` | `1.0` | cache token 折算比例（0.0–1.0），调低可降低 ctx 百分比 |
+| `CLAUDE_CODE_STATUSLINE_OAUTH_TOKEN_FILE` | — | 自定义 OAuth 凭据文件路径（默认尝试 Keychain / `~/.claude/.credentials.json`） |
+
 
 ### 7d 时间格式支持的 strftime 标记
 

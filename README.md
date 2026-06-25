@@ -312,7 +312,7 @@ show_buddy_segment = true
 | `/statusline max-width [值\|auto]` | 设置宽度预算 |
 | `/statusline time-format [值]` | 设置 7d 时间格式（strftime） |
 | `/statusline reset` | 恢复所有配置为默认值 |
-| `/statusline preview [主题]` | ANSI 色块预览主题色板 |
+| `/statusline preview [主题]` | ANSI 色块 + 完整状态栏预览 |
 | `/statusline update` | 从 GitHub 拉取最新版本并安装 |
 
 **特性：**
@@ -321,7 +321,7 @@ show_buddy_segment = true
 - 模糊匹配：`drac` → `dracula`、`sol` → `solarized`
 - 智能联动：改 `bar-style` 时提醒切换到 `bars` 布局；选 `bars` 布局时推荐非 ascii 样式
 - 变更前后对比：每次修改显示旧值 → 新值
-- 主题预览：`/statusline theme` 无参数时先做主题预览，确认后才写入；`/statusline preview` 可单独查看 ANSI 色板
+- 主题预览：`/statusline theme` 无参数时先做主题预览，确认后才写入；`/statusline preview` 可查看 ANSI 色板 + 完整状态栏预览
 - 组合推荐：说"推荐暗色主题"可获得主题 + 布局 + 样式的预设方案
 - 一键更新：`/statusline update` 从 GitHub 拉取最新版本并安装到本地
 
@@ -339,7 +339,7 @@ show_buddy_segment = true
 ```
 
 - `show`：显示当前 Claude 主题
-- `preview [主题]`：输出 ANSI 色板预览，不写配置
+- `preview [主题]`：输出 ANSI 色板 + 完整状态栏预览，不写配置
 - `theme <主题>`：直接切换并写入 `~/.claude/settings.json`
 - `theme`：进入交互模式，切换候选主题时只做模拟预览，输入 `confirm` 后才写入，`cancel` 保持原主题
 
@@ -393,7 +393,7 @@ show_buddy_segment = true
 
 | 值 | 说明 | Claude Code 环境变量 | Codex 环境变量 / config.toml |
 |----|------|---------------------|------------------------------|
-| `bars` | **默认**。Claude 为 3 行；Codex 为 2–4 行（含进度条） | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `CODEX_STATUSLINE_LAYOUT` / `layout` |
+| `bars` | **默认**。Claude 为 4 行（git + 概览 + 5h/7d 进度条）；Codex 为 2–4 行（含进度条） | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `CODEX_STATUSLINE_LAYOUT` / `layout` |
 | `compact` | 所有信息压缩在一行 | 同上 | 同上 |
 
 ### 进度条样式（仅 `bars` 布局生效）
