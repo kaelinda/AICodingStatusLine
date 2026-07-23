@@ -495,9 +495,21 @@ build_eff_segment() {
             effort_label="medium"
             effort_text="${yellow}medium${reset}"
             ;;
-        *)
+        high)
             effort_label="high"
             effort_text="${orange}high${reset}"
+            ;;
+        xhigh)
+            effort_label="xhigh"
+            effort_text="${red}xhigh${reset}"
+            ;;
+        max)
+            effort_label="max"
+            effort_text="${bold}${red}max${reset}"
+            ;;
+        *)
+            effort_label="$effort_level"
+            effort_text="${orange}${effort_level}${reset}"
             ;;
     esac
 

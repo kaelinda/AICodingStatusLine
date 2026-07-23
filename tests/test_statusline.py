@@ -365,6 +365,14 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("extra $12.34/$20.00", output)
         self.assertLessEqual(len(output), 145)
 
+    def test_effort_xhigh_level_renders(self):
+        output = self._run_shell(budget=200, extra_env={"CLAUDE_CODE_EFFORT_LEVEL": "xhigh"})
+        self.assertIn("xhigh", output)
+
+    def test_effort_max_level_renders(self):
+        output = self._run_shell(budget=200, extra_env={"CLAUDE_CODE_EFFORT_LEVEL": "max"})
+        self.assertIn("max", output)
+
     def test_medium_budget_drops_extra_before_core_segments(self):
         output = self._run_shell(budget=100)
         self.assertIn("ctx 15k/200k 7%", output)
@@ -1447,6 +1455,14 @@ class CodexStatusLineTests(unittest.TestCase):
     def test_codex_effort_env_override(self):
         output = self._run_codex(budget=150, extra_env={"CODEX_EFFORT_LEVEL": "low"})
         self.assertIn("low", output)
+
+    def test_codex_effort_minimal_level(self):
+        output = self._run_codex(budget=150, extra_env={"CODEX_EFFORT_LEVEL": "minimal"})
+        self.assertIn("min", output)
+
+    def test_codex_effort_xhigh_level(self):
+        output = self._run_codex(budget=150, extra_env={"CODEX_EFFORT_LEVEL": "xhigh"})
+        self.assertIn("xhigh", output)
 
     def test_codex_ctx_segment(self):
         output = self._run_codex(budget=150)

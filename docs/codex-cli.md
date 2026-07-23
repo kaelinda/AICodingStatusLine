@@ -234,7 +234,7 @@ CODEX_MODEL_NAME=o3 CODEX_STATUSLINE_THEME=dracula codex-tmux
 | **Model** | 当前模型名称 | `gpt-5.4` |
 | **CWD@Branch** | 当前目录名 + Git 分支，仓库有改动时追加 `(+N -N)`；可配置为仅显示分支 | `myapp@main (+3 -1)` / `branch:main` |
 | **ctx** | 当前已用 / 总计 context window + 百分比 | `ctx 89k/258k 34%` |
-| **eff** | 当前推理努力等级 | `low` / `medium` / `high` |
+| **eff** | 当前推理努力等级（对齐最新 Codex CLI） | `minimal`(min) / `low` / `medium` / `high` / `xhigh` |
 | **5h** | 5 小时速率限制剩余百分比 + 重置时间 | `5h 86% left 13:30` |
 | **weekly** | 长周期额度（secondary rate limit）的剩余百分比 + 绝对重置时间 | `weekly 96% left 3/25 0:00 reset` |
 
