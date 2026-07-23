@@ -115,7 +115,7 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 | **Model** | 当前模型名称 | `Opus 4.6` |
 | **CWD@Branch** | 当前目录名 + Git 分支，仓库有改动时追加 `(+N -N)`；可配置为仅显示分支 | `myapp@main (+3 -1)` / `branch:main` |
 | **ctx** | 当前已用 / 总计 context window + 百分比 | `ctx 15k/200k 7%` |
-| **eff** | 当前推理努力等级 | `low` / `medium` / `high` |
+| **eff** | 当前推理努力等级（对齐最新 Claude Code） | `low` / `medium` / `high` / `xhigh` / `max` |
 | **5h** | 5 小时额度的已用百分比 + 未来重置时间 | `5h 83% 2:00` |
 | **7d** | 7 天额度的已用百分比 + 未来重置时间 | `7d 63% 03/06 08:00` |
 | **extra** | 额外用量积分（启用时才显示） | `extra $12.34/$20.00` |

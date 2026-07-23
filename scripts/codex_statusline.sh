@@ -960,6 +960,10 @@ build_buddy_segment() {
 build_eff_segment() {
     local effort_label effort_text
     case "$effort_level" in
+        minimal)
+            effort_label="min"
+            effort_text="${dim}min${reset}"
+            ;;
         low)
             effort_label="low"
             effort_text="${strong}low${reset}"
@@ -968,9 +972,17 @@ build_eff_segment() {
             effort_label="medium"
             effort_text="${yellow}medium${reset}"
             ;;
-        *)
+        high)
             effort_label="high"
             effort_text="${orange}high${reset}"
+            ;;
+        xhigh)
+            effort_label="xhigh"
+            effort_text="${red}xhigh${reset}"
+            ;;
+        *)
+            effort_label="$effort_level"
+            effort_text="${orange}${effort_level}${reset}"
             ;;
     esac
 
