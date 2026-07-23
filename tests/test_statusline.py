@@ -373,6 +373,12 @@ class StatusLineTests(unittest.TestCase):
         output = self._run_shell(budget=200, extra_env={"CLAUDE_CODE_EFFORT_LEVEL": "max"})
         self.assertIn("max", output)
 
+    def test_effort_unknown_level_is_truncated(self):
+        long_label = "superduperlonglabel"
+        output = self._run_shell(budget=200, extra_env={"CLAUDE_CODE_EFFORT_LEVEL": long_label})
+        self.assertIn(long_label[:8], output)
+        self.assertNotIn(long_label, output)
+
     def test_medium_budget_drops_extra_before_core_segments(self):
         output = self._run_shell(budget=100)
         self.assertIn("ctx 15k/200k 7%", output)
