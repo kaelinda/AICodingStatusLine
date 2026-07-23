@@ -27,7 +27,14 @@ while [ $# -gt 0 ]; do
         --force-native) force_mode="native"; shift ;;
         --force-tmux)   force_mode="tmux";   shift ;;
         --dry-run)      dry_run=1;           shift ;;
-        --session)      session_name="${2:-}"; shift 2 ;;
+        --session)
+            if [ $# -lt 2 ] || [ -z "${2:-}" ] || [ "${2#-}" != "$2" ]; then
+                printf '[codex-launch] --session requires a non-empty NAME argument.\n' >&2
+                exit 2
+            fi
+            session_name="$2"
+            shift 2
+            ;;
         -h|--help)
             sed -n '2,20p' "$0" | sed 's/^# \{0,1\}//'
             exit 0

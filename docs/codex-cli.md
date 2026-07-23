@@ -2,6 +2,8 @@
 
 截至 2026-04-02，Codex 已提供原生 `tui.status_line`，还能启用实验性 hooks。本项目提供的是更强的增强层：在 Codex 原生能力之上，用 `tmux` 包装补充多行 bars、`5h` / `weekly`、Git diff、主题和宽度裁剪。
 
+> **实验性入口 `codex-launch`**：`scripts/codex_launch.sh` 是一个正在探索中的智能启动器，会按 tmux 是否可用 / 是否 git 仓库自动选择增强 or 原生模式，并把 `git_display=repo`、`show_git_line=1` 透传到状态栏。当前尚未纳入 `install.sh`，可直接执行 `./scripts/codex_launch.sh --dry-run` 试用，或参考 [`docs/codex-adapt-exploration.md`](codex-adapt-exploration.md) 了解规划范围。
+
 如果你只需要官方基础 footer，用 `codex-native`；如果你要更丰富的状态 HUD，用 `codex` tmux 增强模式。
 
 ---
