@@ -981,8 +981,8 @@ build_eff_segment() {
             effort_text="${red}xhigh${reset}"
             ;;
         *)
-            effort_label="$effort_level"
-            effort_text="${orange}${effort_level}${reset}"
+            effort_label="${effort_level:0:8}"
+            effort_text="${orange}${effort_label}${reset}"
             ;;
     esac
 

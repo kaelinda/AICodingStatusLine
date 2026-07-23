@@ -442,8 +442,10 @@ function Build-EffSegment {
             $valueText = "${bold}${red}max${reset}"
         }
         default {
-            $plain = $script:effortLevel
-            $valueText = "${orange}$($script:effortLevel)${reset}"
+            $raw = [string]$script:effortLevel
+            if ($raw.Length -gt 8) { $raw = $raw.Substring(0, 8) }
+            $plain = $raw
+            $valueText = "${orange}${raw}${reset}"
         }
     }
     return New-Segment $valueText $plain
