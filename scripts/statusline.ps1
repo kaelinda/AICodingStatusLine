@@ -449,9 +449,23 @@ function Build-EffSegment {
             $plain = "medium"
             $valueText = "${yellow}medium${reset}"
         }
-        default {
+        "high" {
             $plain = "high"
             $valueText = "${orange}high${reset}"
+        }
+        "xhigh" {
+            $plain = "xhigh"
+            $valueText = "${red}xhigh${reset}"
+        }
+        "max" {
+            $plain = "max"
+            $valueText = "${bold}${red}max${reset}"
+        }
+        default {
+            $raw = [string]$script:effortLevel
+            if ($raw.Length -gt 8) { $raw = $raw.Substring(0, 8) }
+            $plain = $raw
+            $valueText = "${orange}${raw}${reset}"
         }
     }
     return New-Segment $valueText $plain
