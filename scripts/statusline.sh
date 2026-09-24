@@ -59,7 +59,7 @@ initialize_segment_order() {
     for raw_item in $(printf '%s' "${segments_raw:-$default_segment_order_csv}" | tr ',' ' '); do
         segment_name=$(printf '%s' "$raw_item" | tr -d '[:space:]')
         case "$segment_name" in
-            model|eff|git|ctx|5h|7d|extra)
+            model|eff|git|ctx|5h|7d|extra|session|mode|cache|cost|pr)
                 append_segment_order "$segment_name"
                 ;;
         esac
@@ -409,6 +409,31 @@ compose_segments() {
                     add_segment "$SEG_TEXT" "$SEG_PLAIN"
                 fi
                 ;;
+            session)
+                segment_enabled "session" || continue
+                build_session_segment
+                [ -n "$SEG_PLAIN" ] && add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            mode)
+                segment_enabled "mode" || continue
+                build_mode_segment
+                [ -n "$SEG_PLAIN" ] && add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            cache)
+                segment_enabled "cache" || continue
+                build_cache_segment
+                [ -n "$SEG_PLAIN" ] && add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            cost)
+                segment_enabled "cost" || continue
+                build_cost_segment
+                [ -n "$SEG_PLAIN" ] && add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
+            pr)
+                segment_enabled "pr" || continue
+                build_pr_segment
+                [ -n "$SEG_PLAIN" ] && add_segment "$SEG_TEXT" "$SEG_PLAIN"
+                ;;
         esac
     done
 
@@ -506,7 +531,7 @@ build_eff_segment() {
 }
 
 build_five_hour_segment() {
-    if [ "$usage_available" -ne 1 ]; then
+    if [ "$five_hour_available" -ne 1 ]; then
         if [ "$api_attempt_failed" -eq 1 ]; then
             SEG_PLAIN="5h ?"
             SEG_TEXT="${dim}5h${reset} ${orange}?${reset}"
@@ -530,7 +555,7 @@ build_five_hour_segment() {
 }
 
 build_seven_day_segment() {
-    if [ "$usage_available" -ne 1 ]; then
+    if [ "$seven_day_available" -ne 1 ]; then
         if [ "$api_attempt_failed" -eq 1 ]; then
             SEG_PLAIN="7d ?"
             SEG_TEXT="${dim}7d${reset} ${orange}?${reset}"
@@ -569,6 +594,66 @@ build_extra_segment() {
 
     SEG_PLAIN="extra enabled"
     SEG_TEXT="${dim}extra${reset} ${strong}enabled${reset}"
+}
+
+build_session_segment() {
+    SEG_PLAIN=""
+    SEG_TEXT=""
+    [ -n "${session_name:-}" ] || return
+    local value
+    value=$(truncate_middle "$session_name" 32)
+    SEG_PLAIN="session:${value}"
+    SEG_TEXT="${dim}session:${reset}${primary}${value}${reset}"
+}
+
+build_mode_segment() {
+    SEG_PLAIN=""
+    SEG_TEXT=""
+    local value=""
+    if [ "${fast_mode:-false}" = "true" ]; then
+        value="fast"
+    elif [ "${thinking_enabled:-false}" = "true" ]; then
+        value="think"
+    elif [ -n "${effort_level:-}" ]; then
+        value="effort:${effort_level}"
+    fi
+    [ -n "$value" ] || return
+    SEG_PLAIN="$value"
+    SEG_TEXT="${yellow}${value}${reset}"
+}
+
+build_cache_segment() {
+    SEG_PLAIN=""
+    SEG_TEXT=""
+    if [ -n "${cache_hit_ratio_pct:-}" ]; then
+        SEG_PLAIN="cache ${cache_hit_ratio_pct}%"
+        SEG_TEXT="${dim}cache${reset} ${teal}${cache_hit_ratio_pct}%${reset}"
+    elif [ "${cache_warm:-false}" = "true" ]; then
+        SEG_PLAIN="cache warm"
+        SEG_TEXT="${dim}cache${reset} ${teal}warm${reset}"
+    fi
+}
+
+build_cost_segment() {
+    SEG_PLAIN=""
+    SEG_TEXT=""
+    [ -n "${total_cost_usd:-}" ] || return
+    SEG_PLAIN=$(printf '$%.2f' "$total_cost_usd" 2>/dev/null) || return
+    [ -n "$SEG_PLAIN" ] || return
+    SEG_TEXT="${dim}\$${reset}${primary}${SEG_PLAIN#\$}${reset}"
+}
+
+build_pr_segment() {
+    SEG_PLAIN=""
+    SEG_TEXT=""
+    [ -n "${pr_number:-}" ] || return
+    if [ -n "${pr_review_state:-}" ]; then
+        SEG_PLAIN="PR#${pr_number} ${pr_review_state}"
+    else
+        SEG_PLAIN="PR#${pr_number}"
+    fi
+    SEG_TEXT="${dim}PR#${reset}${primary}${pr_number}${reset}"
+    [ -n "${pr_review_state:-}" ] && SEG_TEXT+=" ${secondary}${pr_review_state}${reset}"
 }
 
 build_usage_bar_line() {
@@ -751,7 +836,7 @@ render_bars_output() {
     if segment_enabled "5h"; then
         local five_disp suffix
         suffix=$(pct_suffix)
-        if [ "$usage_available" -eq 1 ]; then
+        if [ "$five_hour_available" -eq 1 ]; then
             five_disp=$(display_pct "$five_hour_pct")
             build_usage_bar_line "5h" "$five_hour_pct" "${five_disp}%${suffix}" "$full_five_time" ""
         else
@@ -763,7 +848,7 @@ render_bars_output() {
     if segment_enabled "7d"; then
         local seven_disp suffix
         suffix=$(pct_suffix)
-        if [ "$usage_available" -eq 1 ]; then
+        if [ "$seven_day_available" -eq 1 ]; then
             seven_disp=$(display_pct "$seven_day_pct")
             build_usage_bar_line "7d" "$seven_day_pct" "${seven_disp}%${suffix}" "$full_seven_time" "$short_seven_time"
         else
@@ -835,6 +920,11 @@ iso_to_epoch() {
     local iso_str="$1"
     local epoch
 
+    if [[ "$iso_str" =~ ^[0-9]+$ ]]; then
+        printf "%s" "$iso_str"
+        return 0
+    fi
+
     epoch=$(date -d "${iso_str}" +%s 2>/dev/null)
     if [ -n "$epoch" ]; then
         printf "%s" "$epoch"
@@ -895,14 +985,30 @@ format_reset_time() {
 seven_day_time_format=$(resolve_seven_day_time_format "${CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT:-}")
 
 input_fields=$(printf '%s' "$input" | jq -r '[
-    (.model.display_name // "Claude"),
+    (.model.display_name // .model.id // "Claude"),
     (.context_window.context_window_size // 200000),
     (.context_window.current_usage.input_tokens // 0),
     (.context_window.current_usage.cache_creation_input_tokens // 0),
     (.context_window.current_usage.cache_read_input_tokens // 0),
-    (.cwd // "")
-] | @tsv' 2>/dev/null)
-IFS=$'\t' read -r model_name size input_tokens cache_create cache_read cwd <<EOF
+    (.workspace.current_dir // .cwd // ""),
+    (.workspace.project_dir // ""),
+    (.workspace.git_worktree // .worktree.name // ""),
+    (.session_name // ""),
+    (.fast_mode // false),
+    (.thinking.enabled // false),
+    (.effort.level // ""),
+    (.prompt_cache.warm // false),
+    (.prompt_cache.hit_ratio // ""),
+    (.cost.total_cost_usd // ""),
+    (.pr.number // ""),
+    (.pr.review_state // ""),
+    (.context_window.used_percentage // ""),
+    (.rate_limits.five_hour.used_percentage // ""),
+    (.rate_limits.five_hour.resets_at // ""),
+    (.rate_limits.seven_day.used_percentage // ""),
+    (.rate_limits.seven_day.resets_at // "")
+] | map(if . == null then "" else tostring end) | @tsv' 2>/dev/null)
+IFS=$'\t' read -r model_name size input_tokens cache_create cache_read cwd project_dir worktree_name session_name fast_mode thinking_enabled native_effort_level cache_warm cache_hit_ratio total_cost_usd pr_number pr_review_state native_context_pct native_five_hour_pct native_five_hour_reset_iso native_seven_day_pct native_seven_day_reset_iso <<EOF
 $input_fields
 EOF
 [ -n "$model_name" ] || model_name="Claude"
@@ -910,6 +1016,28 @@ EOF
 [ -n "$input_tokens" ] || input_tokens=0
 [ -n "$cache_create" ] || cache_create=0
 [ -n "$cache_read" ] || cache_read=0
+
+is_finite_number() {
+    [[ "$1" =~ ^-?[0-9]+([.][0-9]+)?$ ]]
+}
+
+normalize_percentage() {
+    local value="$1"
+    if is_finite_number "$value"; then
+        LC_NUMERIC=C awk -v value="$value" 'BEGIN { if (value >= 0 && value <= 100) printf "%.0f", value }'
+    fi
+}
+
+native_context_pct=$(normalize_percentage "${native_context_pct:-}")
+native_five_hour_pct=$(normalize_percentage "${native_five_hour_pct:-}")
+native_seven_day_pct=$(normalize_percentage "${native_seven_day_pct:-}")
+
+if is_finite_number "${cache_hit_ratio:-}"; then
+    cache_hit_ratio_pct=$(LC_NUMERIC=C awk -v value="$cache_hit_ratio" 'BEGIN { if (value >= 0 && value <= 1) printf "%.0f", value * 100 }')
+fi
+if ! is_finite_number "${total_cost_usd:-}" || ! LC_NUMERIC=C awk -v value="${total_cost_usd:-}" 'BEGIN { exit !(value >= 0) }'; then
+    total_cost_usd=""
+fi
 
 [ "$size" -eq 0 ] 2>/dev/null && size=200000
 
@@ -924,15 +1052,22 @@ if [ "$size" -gt 0 ]; then
 else
     pct_used=0
 fi
+if [ -n "${native_context_pct:-}" ]; then
+    pct_used="$native_context_pct"
+fi
 
 settings_path="$HOME/.claude/settings.json"
 effort_level="medium"
-if [ -n "$CLAUDE_CODE_EFFORT_LEVEL" ]; then
+if [[ "${native_effort_level:-}" =~ ^(low|medium|high|xhigh|max)$ ]]; then
+    effort_level="$native_effort_level"
+elif [ -n "$CLAUDE_CODE_EFFORT_LEVEL" ]; then
     effort_level="$CLAUDE_CODE_EFFORT_LEVEL"
 elif [ -f "$settings_path" ]; then
     effort_val=$(jq -r '.effortLevel // empty' "$settings_path" 2>/dev/null)
     [ -n "$effort_val" ] && effort_level="$effort_val"
 fi
+
+[ -n "${project_dir:-}" ] || project_dir="$cwd"
 
 display_dir=""
 git_branch=""
@@ -952,17 +1087,32 @@ cache_file="/tmp/claude/statusline-usage-cache.json"
 cache_max_age="${CLAUDE_CODE_STATUSLINE_CACHE_TTL:-60}"
 mkdir -p /tmp/claude
 
+native_five_valid=0
+native_seven_valid=0
+[ -n "${native_five_hour_pct:-}" ] && native_five_valid=1
+[ -n "${native_seven_day_pct:-}" ] && native_seven_valid=1
+native_rate_limits_available=0
+if [ "$native_five_valid" -eq 1 ] || [ "$native_seven_valid" -eq 1 ]; then
+    native_rate_limits_available=1
+fi
+
 needs_refresh=true
 usage_data=""
+
+if [ "$native_five_valid" -eq 1 ] && [ "$native_seven_valid" -eq 1 ]; then
+    needs_refresh=false
+fi
 
 if [ -f "$cache_file" ]; then
     cache_mtime=$(stat -c %Y "$cache_file" 2>/dev/null || stat -f %m "$cache_file" 2>/dev/null)
     now=$(date +%s)
     cache_age=$(( now - cache_mtime ))
-    if [ "$cache_age" -lt "$cache_max_age" ]; then
+    if [ "$cache_age" -lt "$cache_max_age" ] && [ "$native_rate_limits_available" -eq 0 ]; then
         needs_refresh=false
     fi
-    usage_data=$(cat "$cache_file" 2>/dev/null)
+    if [ "$native_five_valid" -eq 0 ] || [ "$native_seven_valid" -eq 0 ]; then
+        usage_data=$(cat "$cache_file" 2>/dev/null)
+    fi
 fi
 
 if $needs_refresh; then
@@ -993,6 +1143,8 @@ fi
 
 usage_available=0
 api_attempt_failed="${api_attempt_failed:-0}"
+five_hour_available=0
+seven_day_available=0
 show_seven_day=1
 show_extra=0
 extra_cache_file="/tmp/claude/statusline-extra-cache.json"
@@ -1031,12 +1183,14 @@ EOF
     [ -n "$extra_limit_cents" ] || extra_limit_cents=0
 
     five_hour_pct=$(LC_NUMERIC=C awk -v value="${five_hour_utilization:-0}" 'BEGIN {printf "%.0f", value + 0}')
+    five_hour_available=1
     if is_future_epoch "$five_hour_reset_iso"; then
         five_hour_reset=$(format_reset_time "$five_hour_reset_iso" "%H:%M" "1")
         [ -n "$five_hour_reset" ] && show_five_hour_reset=1
     fi
 
     seven_day_pct=$(LC_NUMERIC=C awk -v value="${seven_day_utilization:-0}" 'BEGIN {printf "%.0f", value + 0}')
+    [ -n "${seven_day_utilization:-}" ] && seven_day_available=1
     if is_future_epoch "$seven_day_reset_iso"; then
         seven_day_reset=$(format_reset_time "$seven_day_reset_iso" "$seven_day_time_format" "0")
         seven_day_date=$(format_reset_time "$seven_day_reset_iso" "$short_seven_day_date_format" "0")
@@ -1049,6 +1203,33 @@ EOF
         show_extra=1
         mkdir -p /tmp/claude 2>/dev/null
         printf '{"is_enabled":true,"used_credits":"%s","monthly_limit":"%s"}\n' "$extra_used" "$extra_limit" > "$extra_cache_file"
+    fi
+fi
+
+if [ "$native_five_valid" -eq 1 ]; then
+    usage_available=1
+    five_hour_available=1
+    five_hour_pct="$native_five_hour_pct"
+    five_hour_reset_iso="$native_five_hour_reset_iso"
+    five_hour_reset=""
+    show_five_hour_reset=0
+    if is_future_epoch "$five_hour_reset_iso"; then
+        five_hour_reset=$(format_reset_time "$five_hour_reset_iso" "%H:%M" "1")
+        [ -n "$five_hour_reset" ] && show_five_hour_reset=1
+    fi
+fi
+if [ "$native_seven_valid" -eq 1 ]; then
+    usage_available=1
+    seven_day_available=1
+    seven_day_pct="$native_seven_day_pct"
+    seven_day_reset_iso="$native_seven_day_reset_iso"
+    seven_day_reset=""
+    seven_day_date=""
+    show_seven_day_reset=0
+    if is_future_epoch "$seven_day_reset_iso"; then
+        seven_day_reset=$(format_reset_time "$seven_day_reset_iso" "$seven_day_time_format" "0")
+        seven_day_date=$(format_reset_time "$seven_day_reset_iso" "$short_seven_day_date_format" "0")
+        [ -n "$seven_day_reset" ] && show_seven_day_reset=1
     fi
 fi
 

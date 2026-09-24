@@ -204,6 +204,18 @@ function Get-UsageColor([int]$pct) {
     return $green
 }
 
+function Get-ValidPercentage($value) {
+    if ($null -eq $value) { return $null }
+    try {
+        $number = [double]$value
+        if ([double]::IsNaN($number) -or [double]::IsInfinity($number)) { return $null }
+        if ($number -lt 0 -or $number -gt 100) { return $null }
+        return [int][math]::Round($number)
+    } catch {
+        return $null
+    }
+}
+
 function Get-DisplayPct([int]$usedPct) {
     if ($script:pctMode -eq "left") { return 100 - $usedPct }
     return $usedPct
@@ -329,7 +341,11 @@ function Get-OAuthToken {
 function Format-ResetTime([string]$isoStr, [string]$dotNetFormat, [bool]$trimHour = $false) {
     if (-not $isoStr -or $isoStr -eq "null") { return $null }
     try {
-        $dt = [DateTimeOffset]::Parse($isoStr).LocalDateTime
+        if ($isoStr -match '^[0-9]+$') {
+            $dt = [DateTimeOffset]::FromUnixTimeSeconds([long]$isoStr).LocalDateTime
+        } else {
+            $dt = [DateTimeOffset]::Parse($isoStr).LocalDateTime
+        }
         $formatted = $dt.ToString($dotNetFormat, [System.Globalization.CultureInfo]::InvariantCulture)
         if ($trimHour) {
             $formatted = [regex]::Replace($formatted, '(^| )0(\d:)', '$1$2')
@@ -343,7 +359,11 @@ function Format-ResetTime([string]$isoStr, [string]$dotNetFormat, [bool]$trimHou
 function Test-FutureTime([string]$isoStr) {
     if (-not $isoStr -or $isoStr -eq "null") { return $false }
     try {
-        $dt = [DateTimeOffset]::Parse($isoStr)
+        if ($isoStr -match '^[0-9]+$') {
+            $dt = [DateTimeOffset]::FromUnixTimeSeconds([long]$isoStr)
+        } else {
+            $dt = [DateTimeOffset]::Parse($isoStr)
+        }
         return ($dt -gt [DateTimeOffset]::UtcNow)
     } catch {
         return $false
@@ -438,7 +458,7 @@ function Build-EffSegment {
 }
 
 function Build-FiveHourSegment {
-    if (-not $script:usageAvailable) {
+    if (-not $script:fiveHourAvailable) {
         if ($script:apiAttemptFailed) {
             return New-Segment "${dim}5h${reset} ${orange}?${reset}" "5h ?"
         }
@@ -458,7 +478,7 @@ function Build-FiveHourSegment {
 }
 
 function Build-SevenDaySegment {
-    if (-not $script:usageAvailable) {
+    if (-not $script:sevenDayAvailable) {
         if ($script:apiAttemptFailed) {
             return New-Segment "${dim}7d${reset} ${orange}?${reset}" "7d ?"
         }
@@ -489,6 +509,49 @@ function Build-ExtraSegment {
     return New-Segment "${dim}extra${reset} ${strong}enabled${reset}" "extra enabled"
 }
 
+function Build-SessionSegment {
+    if (-not $script:sessionName) { return $null }
+    $value = Truncate-Middle $script:sessionName 32
+    return New-Segment "${dim}session:${reset}${primary}$value${reset}" "session:$value"
+}
+
+function Build-ModeSegment {
+    $value = $null
+    if ($script:fastMode) { $value = "fast" }
+    elseif ($script:thinkingEnabled) { $value = "think" }
+    elseif ($script:effortLevel) { $value = "effort:$($script:effortLevel)" }
+    if (-not $value) { return $null }
+    return New-Segment "${yellow}$value${reset}" $value
+}
+
+function Build-CacheSegment {
+    if ($null -ne $script:cacheHitRatioPct) {
+        return New-Segment "${dim}cache${reset} ${teal}$($script:cacheHitRatioPct)%${reset}" "cache $($script:cacheHitRatioPct)%"
+    }
+    if ($script:cacheWarm) {
+        return New-Segment "${dim}cache${reset} ${teal}warm${reset}" "cache warm"
+    }
+    return $null
+}
+
+function Build-CostSegment {
+    if ($null -eq $script:totalCostUsd) { return $null }
+    $formatted = "{0:F2}" -f [double]$script:totalCostUsd
+    $plain = "`$$formatted"
+    return New-Segment "${dim}`$${reset}${primary}$formatted${reset}" $plain
+}
+
+function Build-PrSegment {
+    if ($null -eq $script:prNumber) { return $null }
+    $plain = "PR#$($script:prNumber)"
+    $text = "${dim}PR#${reset}${primary}$($script:prNumber)${reset}"
+    if ($script:prReviewState) {
+        $plain += " $($script:prReviewState)"
+        $text += " ${secondary}$($script:prReviewState)${reset}"
+    }
+    return New-Segment $text $plain
+}
+
 $defaultSegmentOrderCsv = "model,eff,git,ctx,5h,7d,extra"
 $orderedSegments = @()
 
@@ -506,6 +569,11 @@ function Initialize-OrderedSegments {
             "5h"    { if ($script:orderedSegments -notcontains "5h")    { $script:orderedSegments += "5h" } }
             "7d"    { if ($script:orderedSegments -notcontains "7d")    { $script:orderedSegments += "7d" } }
             "extra" { if ($script:orderedSegments -notcontains "extra") { $script:orderedSegments += "extra" } }
+            "session" { if ($script:orderedSegments -notcontains "session") { $script:orderedSegments += "session" } }
+            "mode" { if ($script:orderedSegments -notcontains "mode") { $script:orderedSegments += "mode" } }
+            "cache" { if ($script:orderedSegments -notcontains "cache") { $script:orderedSegments += "cache" } }
+            "cost" { if ($script:orderedSegments -notcontains "cost") { $script:orderedSegments += "cost" } }
+            "pr" { if ($script:orderedSegments -notcontains "pr") { $script:orderedSegments += "pr" } }
         }
     }
     foreach ($name in ($defaultSegmentOrderCsv -split ',')) {
@@ -538,6 +606,11 @@ function Compose-Output {
                 $extraSegment = Build-ExtraSegment
                 if ($extraSegment) { $segments.Add($extraSegment) }
             } }
+            "session" { if (Test-SegmentEnabled "session") { $segment = Build-SessionSegment; if ($segment) { $segments.Add($segment) } } }
+            "mode" { if (Test-SegmentEnabled "mode") { $segment = Build-ModeSegment; if ($segment) { $segments.Add($segment) } } }
+            "cache" { if (Test-SegmentEnabled "cache") { $segment = Build-CacheSegment; if ($segment) { $segments.Add($segment) } } }
+            "cost" { if (Test-SegmentEnabled "cost") { $segment = Build-CostSegment; if ($segment) { $segments.Add($segment) } } }
+            "pr" { if (Test-SegmentEnabled "pr") { $segment = Build-PrSegment; if ($segment) { $segments.Add($segment) } } }
         }
     }
 
@@ -670,7 +743,7 @@ function Render-BarsOutput {
 
     $suffix = Get-PctSuffix
     if (Test-SegmentEnabled "5h") {
-        if ($script:usageAvailable) {
+        if ($script:fiveHourAvailable) {
             $fiveDisp = Get-DisplayPct $script:fiveHourPct
             $fiveLine = Build-UsageBarLine "5h" $script:fiveHourPct "${fiveDisp}%${suffix}" $script:fiveHourReset $null
         } else {
@@ -680,7 +753,7 @@ function Render-BarsOutput {
     }
 
     if (Test-SegmentEnabled "7d") {
-        if ($script:usageAvailable) {
+        if ($script:sevenDayAvailable) {
             $sevenDisp = Get-DisplayPct $script:sevenDayPct
             $sevenLine = Build-UsageBarLine "7d" $script:sevenDayPct "${sevenDisp}%${suffix}" $script:sevenDayReset $script:sevenDayDate
         } else {
@@ -694,7 +767,7 @@ function Render-BarsOutput {
 
 $data = $input | ConvertFrom-Json
 
-$modelName = if ($data.model.display_name) { $data.model.display_name } else { "Claude" }
+$modelName = if ($data.model.display_name) { $data.model.display_name } elseif ($data.model.id) { $data.model.id } else { "Claude" }
 $size = if ($data.context_window.context_window_size) { [long]$data.context_window.context_window_size } else { 200000 }
 if ($size -eq 0) { $size = 200000 }
 
@@ -707,8 +780,32 @@ $current = [math]::Round($inputTokens + $cacheCreate * $cacheDiscount + $cacheRe
 $usedTokens = Format-Tokens $current
 $totalTokens = Format-Tokens $size
 $pctUsed = if ($size -gt 0) { [math]::Floor($current * 100 / $size) } else { 0 }
+$nativeContextPct = Get-ValidPercentage $data.context_window.used_percentage
+if ($null -ne $nativeContextPct) { $pctUsed = $nativeContextPct }
 
-$effortLevel = if ($env:CLAUDE_CODE_EFFORT_LEVEL) { $env:CLAUDE_CODE_EFFORT_LEVEL } else { "medium" }
+$script:sessionName = if ($data.session_name) { [string]$data.session_name } else { $null }
+$script:fastMode = ($data.fast_mode -eq $true)
+$script:thinkingEnabled = ($data.thinking.enabled -eq $true)
+$script:cacheWarm = ($data.prompt_cache.warm -eq $true)
+$script:cacheHitRatioPct = $null
+if ($null -ne $data.prompt_cache.hit_ratio) {
+    try {
+        $ratio = [double]$data.prompt_cache.hit_ratio
+        if ($ratio -ge 0 -and $ratio -le 1) { $script:cacheHitRatioPct = [int][math]::Round($ratio * 100) }
+    } catch {}
+}
+$script:totalCostUsd = $null
+if ($null -ne $data.cost.total_cost_usd) {
+    try {
+        $cost = [double]$data.cost.total_cost_usd
+        if ($cost -ge 0 -and -not [double]::IsNaN($cost) -and -not [double]::IsInfinity($cost)) { $script:totalCostUsd = $cost }
+    } catch {}
+}
+$script:prNumber = if ($null -ne $data.pr.number) { [string]$data.pr.number } else { $null }
+$script:prReviewState = if ($data.pr.review_state) { [string]$data.pr.review_state } else { $null }
+
+$officialEffort = if ($data.effort.level -match '^(low|medium|high|xhigh|max)$') { [string]$data.effort.level } else { $null }
+$effortLevel = if ($officialEffort) { $officialEffort } elseif ($env:CLAUDE_CODE_EFFORT_LEVEL) { $env:CLAUDE_CODE_EFFORT_LEVEL } else { "medium" }
 if (-not $env:CLAUDE_CODE_EFFORT_LEVEL) {
     $settingsPath = Join-Path $env:USERPROFILE ".claude\settings.json"
     if (Test-Path $settingsPath) {
@@ -719,7 +816,7 @@ if (-not $env:CLAUDE_CODE_EFFORT_LEVEL) {
     }
 }
 
-$cwd = $data.cwd
+$cwd = if ($data.workspace.current_dir) { [string]$data.workspace.current_dir } else { [string]$data.cwd }
 $displayDir = $null
 $gitBranch = $null
 $gitStat = $null
@@ -729,6 +826,12 @@ if ($cwd) {
     $gitStat = Get-GitStat $cwd
 }
 
+$nativeFivePct = Get-ValidPercentage $data.rate_limits.five_hour.used_percentage
+$nativeSevenPct = Get-ValidPercentage $data.rate_limits.seven_day.used_percentage
+$nativeFiveValid = $null -ne $nativeFivePct
+$nativeSevenValid = $null -ne $nativeSevenPct
+$nativeRateLimitsAvailable = $nativeFiveValid -or $nativeSevenValid
+
 $cacheDir = Join-Path $env:TEMP "claude"
 $cacheFile = Join-Path $cacheDir "statusline-usage-cache.json"
 $cacheMaxAge = if ($env:CLAUDE_CODE_STATUSLINE_CACHE_TTL) { [int]$env:CLAUDE_CODE_STATUSLINE_CACHE_TTL } else { 60 }
@@ -736,17 +839,20 @@ if (-not (Test-Path $cacheDir)) { New-Item -ItemType Directory -Path $cacheDir -
 
 $needsRefresh = $true
 $usageData = $null
+$script:apiAttemptFailed = $false
+if ($nativeFiveValid -and $nativeSevenValid) { $needsRefresh = $false }
 if (Test-Path $cacheFile) {
     $cacheAge = ((Get-Date) - (Get-Item $cacheFile).LastWriteTime).TotalSeconds
-    if ($cacheAge -lt $cacheMaxAge) {
+    if ($cacheAge -lt $cacheMaxAge -and -not $nativeRateLimitsAvailable) {
         $needsRefresh = $false
     }
-    $usageData = Get-Content $cacheFile -Raw
+    if (-not ($nativeFiveValid -and $nativeSevenValid)) {
+        $usageData = Get-Content $cacheFile -Raw
+    }
 }
 
 if ($needsRefresh) {
     $token = Get-OAuthToken
-    $script:apiAttemptFailed = $false
     if ($token) {
         for ($retry = 0; $retry -lt 2; $retry++) {
         try {
@@ -775,7 +881,8 @@ if ($needsRefresh) {
 }
 
 $usageAvailable = $false
-$script:apiAttemptFailed = $false
+$fiveHourAvailable = $false
+$sevenDayAvailable = $false
 $showSevenDay = $true
 $showExtra = $false
 $extraCacheFile = Join-Path $cacheDir "statusline-extra-cache.json"
@@ -798,14 +905,16 @@ if ($usageData) {
         $usage = if ($usageData -is [string]) { $usageData | ConvertFrom-Json } else { $usageData }
         if ($usage.five_hour) {
             $usageAvailable = $true
-            $fiveHourPct = [math]::Floor([double]$usage.five_hour.utilization)
+            $fiveHourPct = Get-ValidPercentage $usage.five_hour.utilization
+            $fiveHourAvailable = $null -ne $fiveHourPct
             if (Test-FutureTime $usage.five_hour.resets_at) {
                 $fiveHourReset = Format-ResetTime $usage.five_hour.resets_at "HH:mm" $true
                 $showFiveHourReset = [bool]$fiveHourReset
             }
 
-            $sevenDayPct = [math]::Floor([double]$usage.seven_day.utilization)
-            if (Test-FutureTime $usage.seven_day.resets_at) {
+            $sevenDayPct = Get-ValidPercentage $usage.seven_day.utilization
+            $sevenDayAvailable = $null -ne $sevenDayPct
+            if ($sevenDayAvailable -and (Test-FutureTime $usage.seven_day.resets_at)) {
                 $sevenDayReset = Format-ResetTime $usage.seven_day.resets_at $sevenDayTimeFormat.DotNet
                 $sevenDayDate = Format-ResetTime $usage.seven_day.resets_at (Convert-FromStrftimeFormat $shortSevenDayDateFormat)
                 $showSevenDayReset = [bool]$sevenDayReset
@@ -820,6 +929,31 @@ if ($usageData) {
             }
         }
     } catch {}
+}
+
+if ($nativeFiveValid) {
+    $usageAvailable = $true
+    $fiveHourAvailable = $true
+    $fiveHourPct = $nativeFivePct
+    $fiveHourReset = $null
+    $showFiveHourReset = $false
+    if (Test-FutureTime $data.rate_limits.five_hour.resets_at) {
+        $fiveHourReset = Format-ResetTime ([string]$data.rate_limits.five_hour.resets_at) "HH:mm" $true
+        $showFiveHourReset = [bool]$fiveHourReset
+    }
+}
+if ($nativeSevenValid) {
+    $usageAvailable = $true
+    $sevenDayAvailable = $true
+    $sevenDayPct = $nativeSevenPct
+    $sevenDayReset = $null
+    $sevenDayDate = $null
+    $showSevenDayReset = $false
+    if (Test-FutureTime $data.rate_limits.seven_day.resets_at) {
+        $sevenDayReset = Format-ResetTime ([string]$data.rate_limits.seven_day.resets_at) $sevenDayTimeFormat.DotNet
+        $sevenDayDate = Format-ResetTime ([string]$data.rate_limits.seven_day.resets_at) (Convert-FromStrftimeFormat $shortSevenDayDateFormat)
+        $showSevenDayReset = [bool]$sevenDayReset
+    }
 }
 
 # Fallback to cached extra state when API is unavailable

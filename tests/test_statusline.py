@@ -153,6 +153,43 @@ SAMPLE_INPUT = {
     },
 }
 
+OFFICIAL_CLAUDE_INPUT = {
+    "model": {"id": "claude-opus-4-6", "display_name": "Opus 4.6"},
+    "cwd": "/tmp/legacy-claude-cwd",
+    "workspace": {
+        "current_dir": "/tmp/official-claude-cwd",
+        "project_dir": "/tmp/official-claude-project",
+        "git_worktree": "official-worktree",
+    },
+    "session_name": "release-review",
+    "session_id": "session-123",
+    "fast_mode": True,
+    "thinking": {"enabled": False},
+    "effort": {"level": "high"},
+    "context_window": {
+        "context_window_size": 200000,
+        "current_usage": {
+            "input_tokens": 12345,
+            "cache_creation_input_tokens": 1000,
+            "cache_read_input_tokens": 2000,
+        },
+        "used_percentage": 42,
+    },
+    "rate_limits": {
+        "five_hour": {
+            "used_percentage": 12.5,
+            "resets_at": 4076877600,
+        },
+        "seven_day": {
+            "used_percentage": 34,
+            "resets_at": 4077244800,
+        },
+    },
+    "prompt_cache": {"warm": True, "hit_ratio": 0.91},
+    "cost": {"total_cost_usd": 0.42},
+    "pr": {"number": 1234, "review_state": "pending"},
+}
+
 SAMPLE_USAGE = {
     "five_hour": {"utilization": 83, "resets_at": "2099-03-11T02:00:00Z"},
     "seven_day": {"utilization": 63, "resets_at": "2099-03-06T08:00:00Z"},
@@ -232,7 +269,16 @@ class StatusLineTests(unittest.TestCase):
         )
         return result.stdout
 
-    def _run_shell(self, budget=None, usage=True, cwd=None, raw=False, extra_env=None, layout="compact"):
+    def _run_shell(
+        self,
+        budget=None,
+        usage=True,
+        cwd=None,
+        raw=False,
+        extra_env=None,
+        layout="compact",
+        payload=None,
+    ):
         env = os.environ.copy()
         env["HOME"] = str(self.cache_home)
         env["TZ"] = "UTC"
@@ -263,8 +309,8 @@ class StatusLineTests(unittest.TestCase):
         else:
             self._write_usage(usage)
 
-        payload = dict(SAMPLE_INPUT)
-        payload["cwd"] = str(cwd or self.clean_repo)
+        payload = json.loads(json.dumps(payload or SAMPLE_INPUT))
+        payload["cwd"] = str(cwd or payload.get("cwd") or self.clean_repo)
 
         result = subprocess.run(
             ["/bin/bash", str(SHELL_SCRIPT)],
@@ -325,7 +371,7 @@ class StatusLineTests(unittest.TestCase):
         )
         return result.stdout.strip()
 
-    def _run_pwsh(self, budget=None, extra_env=None):
+    def _run_pwsh(self, budget=None, extra_env=None, payload=None):
         runtime = shutil.which("pwsh") or shutil.which("powershell")
         if runtime is None:
             self.skipTest("PowerShell runtime unavailable")
@@ -344,9 +390,12 @@ class StatusLineTests(unittest.TestCase):
         if extra_env:
             env.update(extra_env)
 
+        input_payload = json.loads(json.dumps(payload or SAMPLE_INPUT))
+        input_payload["cwd"] = input_payload.get("cwd") or str(self.clean_repo)
+
         result = subprocess.run(
             [runtime, "-NoProfile", "-File", str(PS_SCRIPT)],
-            input=json.dumps(SAMPLE_INPUT),
+            input=json.dumps(input_payload),
             capture_output=True,
             text=True,
             env=env,
@@ -425,6 +474,25 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn(f"7d 63% {DEFAULT_7D_TIME}", pwsh_output)
         self.assertNotIn("extra ", pwsh_output)
         self.assertEqual(shell_output.split(" | ")[:4], pwsh_output.split(" | ")[:4])
+
+    def test_powershell_consumes_official_claude_schema_when_available(self):
+        payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))
+        payload["workspace"]["current_dir"] = str(self.clean_repo)
+        payload["workspace"]["project_dir"] = str(self.clean_repo)
+
+        output = self._run_pwsh(
+            budget=260,
+            payload=payload,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_SEGMENTS": "model,git,ctx,5h,7d,session,mode,cache,cost,pr",
+            },
+        )
+
+        self.assertIn("clean-repo@codex/feature/for-claude", output)
+        self.assertIn("5h 13%", output)
+        self.assertIn("7d 34%", output)
+        self.assertIn("session:release-review", output)
+        self.assertIn("PR#1234 pending", output)
 
     def test_theme_preset_changes_ansi_palette_without_changing_plain_text(self):
         default_raw = self._run_shell(budget=100, raw=True)
@@ -756,6 +824,132 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("ctx", output)
         self.assertNotIn("5h", output)
 
+    def test_official_claude_schema_prefers_workspace_and_native_rate_limits(self):
+        payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))
+        payload["workspace"]["current_dir"] = str(self.clean_repo)
+        payload["workspace"]["project_dir"] = str(self.clean_repo)
+
+        output = self._run_shell(
+            budget=260,
+            usage=False,
+            payload=payload,
+            extra_env={
+                "CLAUDE_CODE_STATUSLINE_SEGMENTS": "model,git,ctx,5h,7d,session,mode,cache,cost,pr",
+            },
+        )
+
+        self.assertIn("clean-repo@codex/feature/for-claude", output)
+        self.assertNotIn("tmp@", output)
+        self.assertIn("5h 12% 2:00", output)
+        self.assertIn("7d 34% 03/15 08:00", output)
+        self.assertIn("session:release-review", output)
+        self.assertIn("fast", output)
+        self.assertIn("cache 91%", output)
+        self.assertIn("$0.42", output)
+        self.assertIn("PR#1234 pending", output)
+
+    def test_official_rate_limits_skip_oauth_usage_request(self):
+        payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))
+        payload["workspace"]["current_dir"] = str(self.clean_repo)
+        fake_bin = Path(self.temp_dir.name) / "fake-bin"
+        fake_bin.mkdir()
+        marker = Path(self.temp_dir.name) / "curl-called"
+        fake_curl = fake_bin / "curl"
+        fake_curl.write_text("#!/bin/sh\nprintf '%s' called > \"$CLAUDE_TEST_CURL_MARKER\"\nexit 1\n")
+        fake_curl.chmod(0o755)
+
+        self._run_shell(
+            usage=False,
+            payload=payload,
+            extra_env={
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "CLAUDE_CODE_OAUTH_TOKEN": "test-token",
+                "CLAUDE_TEST_CURL_MARKER": str(marker),
+            },
+        )
+
+        self.assertFalse(marker.exists())
+
+    def test_native_rate_limit_windows_fall_back_independently(self):
+        payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))
+        payload["workspace"]["current_dir"] = str(self.clean_repo)
+        payload["rate_limits"]["seven_day"] = None
+
+        output = self._run_shell(
+            payload=payload,
+            usage=SAMPLE_USAGE,
+            extra_env={"CLAUDE_CODE_STATUSLINE_SEGMENTS": "5h,7d"},
+        )
+
+        self.assertIn("5h 12%", output)
+        self.assertIn("7d 63%", output)
+
+    def test_thinking_mode_is_available_when_fast_mode_is_false(self):
+        payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))
+        payload["workspace"]["current_dir"] = str(self.clean_repo)
+        payload["fast_mode"] = False
+        payload["thinking"]["enabled"] = True
+
+        output = self._run_shell(
+            usage=False,
+            payload=payload,
+            extra_env={"CLAUDE_CODE_STATUSLINE_SEGMENTS": "mode"},
+        )
+
+        self.assertEqual("think", output)
+
+    def test_columns_is_used_as_width_budget(self):
+        output = self._run_shell(
+            extra_env={
+                "COLUMNS": "72",
+                "CLAUDE_CODE_STATUSLINE_LAYOUT": "compact",
+            },
+            budget=None,
+        )
+
+        self.assertLessEqual(len(output), 72)
+
+    def test_malformed_json_returns_basic_output(self):
+        env = os.environ.copy()
+        env["HOME"] = str(self.cache_home)
+        result = subprocess.run(
+            ["/bin/bash", str(SHELL_SCRIPT)],
+            input="not-json",
+            capture_output=True,
+            text=True,
+            env=env,
+            cwd=ROOT,
+            check=True,
+        )
+
+        self.assertTrue(result.stdout.strip())
+        self.assertNotIn("jq:", result.stdout)
+
+    def test_official_optional_segments_are_hidden_by_default(self):
+        payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))
+        payload["workspace"]["current_dir"] = str(self.clean_repo)
+
+        output = self._run_shell(usage=False, payload=payload, budget=180)
+
+        self.assertNotIn("session:", output)
+        self.assertNotIn("cache ", output)
+        self.assertNotIn("PR#", output)
+        self.assertNotIn("$0.42", output)
+
+    def test_invalid_official_fields_fall_back_without_fake_zero_usage(self):
+        payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))
+        payload["workspace"]["current_dir"] = str(self.clean_repo)
+        payload["rate_limits"]["five_hour"] = {"used_percentage": "not-a-number", "resets_at": None}
+        payload["rate_limits"]["seven_day"] = None
+        payload["cost"]["total_cost_usd"] = "not-a-number"
+        payload["context_window"]["used_percentage"] = "not-a-number"
+
+        output = self._run_shell(usage=False, payload=payload, budget=180)
+
+        self.assertNotIn("5h 0%", output)
+        self.assertNotIn("7d 0%", output)
+        self.assertNotIn("$not-a-number", output)
+
     def test_segments_order_reorders_output(self):
         """CLAUDE_CODE_STATUSLINE_SEGMENTS with reordered values changes display order."""
         default_output = self._run_shell(budget=200)
@@ -924,8 +1118,64 @@ class StatusLineTests(unittest.TestCase):
 
         config_text = (install_home / ".codex" / "config.toml").read_text()
         self.assertIn("[tui]", config_text)
-        self.assertIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_text)
+        self.assertIn('status_line = ["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]', config_text)
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_TMUX_LAUNCHER_NAME).exists())
+
+    def test_install_script_codex_native_migrates_managed_list_and_adds_color_flag(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        codex_dir = install_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        config_file = codex_dir / "config.toml"
+        config_file.write_text(
+            '[tui]\n'
+            'status_line = ["model-with-reasoning", "context-remaining", "current-dir"]\n'
+        )
+
+        self._run_install("--target", "codex-native", home=install_home)
+
+        config_text = config_file.read_text()
+        self.assertIn(
+            'status_line = ["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]',
+            config_text,
+        )
+        self.assertIn("status_line_use_colors = true", config_text)
+
+    def test_install_script_codex_native_preserves_custom_status_line(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        codex_dir = install_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        config_file = codex_dir / "config.toml"
+        config_file.write_text(
+            '[tui]\n'
+            'status_line = ["thread-name", "current-dir"]\n'
+        )
+
+        self._run_install("--target", "codex-native", home=install_home)
+
+        config_text = config_file.read_text()
+        self.assertIn('status_line = ["thread-name", "current-dir"]', config_text)
+        self.assertNotIn("git-branch", config_text)
+
+    def test_install_script_codex_native_preserves_multiline_custom_list_and_color_choice(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        codex_dir = install_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        config_file = codex_dir / "config.toml"
+        config_file.write_text(
+            "[tui]\n"
+            "status_line = [\n"
+            '  "thread-name",\n'
+            '  "current-dir"\n'
+            "]\n"
+            "status_line_use_colors = false\n"
+        )
+
+        self._run_install("--target", "codex-native", home=install_home)
+
+        config_text = config_file.read_text()
+        self.assertIn('"thread-name"', config_text)
+        self.assertIn('"current-dir"', config_text)
+        self.assertIn("status_line_use_colors = false", config_text)
 
     def test_install_script_codex_target_writes_refresh_interval_from_flag(self):
         install_home, _ = self._run_install("--target", "codex", "--refresh-interval", "7")
@@ -964,11 +1214,12 @@ class StatusLineTests(unittest.TestCase):
     def test_install_script_uninstall_removes_native_tui_status_line(self):
         install_home, _ = self._run_install("--target", "codex-native")
         config_file = install_home / ".codex" / "config.toml"
-        self.assertIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_file.read_text())
+        self.assertIn('status_line = ["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]', config_file.read_text())
 
         self._run_install("--uninstall", home=install_home)
 
-        self.assertNotIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_file.read_text())
+        self.assertNotIn('status_line = ["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]', config_file.read_text())
+        self.assertNotIn("status_line_use_colors", config_file.read_text())
 
     def test_install_script_bare_uninstall_warns_and_keeps_global_cleanup(self):
         install_home = Path(self.temp_dir.name) / "install-home"
@@ -1059,7 +1310,7 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn('trust_level = "trusted"', config_text)
         self.assertIn("[statusline]", config_text)
         self.assertIn('theme = "rose"', config_text)
-        self.assertNotIn('status_line = ["model-with-reasoning", "context-remaining", "current-dir"]', config_text)
+        self.assertNotIn('status_line = ["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]', config_text)
         self.assertNotIn("notify =", config_text)
         self.assertNotIn("notifications = true", config_text)
         self.assertFalse((install_home / ".codex" / "bin" / CODEX_NOTIFY_BRIDGE_NAME).exists())
@@ -1117,8 +1368,26 @@ class StatusLineTests(unittest.TestCase):
         self.assertIn("PostToolUse", hooks_json["hooks"])
         self.assertIn(str(hook_script), json.dumps(hooks_json))
         self.assertIn("[features]", config_text)
-        self.assertIn("codex_hooks = true", config_text)
+        self.assertIn("hooks = true", config_text)
         self.assertIn("show_hook_segment = true", config_text)
+
+    def test_install_script_codex_hooks_migrates_deprecated_feature_key(self):
+        install_home = Path(self.temp_dir.name) / "install-home"
+        codex_dir = install_home / ".codex"
+        codex_dir.mkdir(parents=True)
+        config_file = codex_dir / "config.toml"
+        config_file.write_text(
+            "[features]\n"
+            "codex_hooks = true\n"
+            "other_feature = true\n"
+        )
+
+        self._run_install("--target", "codex", "--with-hooks", home=install_home)
+        config_text = config_file.read_text()
+
+        self.assertIn("hooks = true", config_text)
+        self.assertNotIn("codex_hooks = true", config_text)
+        self.assertIn("other_feature = true", config_text)
 
     def test_install_script_codex_native_with_notify_installs_notify_bridge_and_config(self):
         install_home, _ = self._run_install("--target", "codex-native", "--with-notify")
@@ -1162,16 +1431,16 @@ class StatusLineTests(unittest.TestCase):
         self.assertNotIn(CODEX_NOTIFY_BRIDGE_NAME, config_text)
         self.assertNotIn("notifications = true", config_text)
 
-    def test_codex_docs_note_native_status_line_and_experimental_hooks(self):
+    def test_codex_docs_note_native_status_line_and_hooks_contract(self):
         readme_text = (ROOT / "README.md").read_text()
         codex_doc_text = (ROOT / "docs" / "codex-cli.md").read_text()
 
         self.assertIn("tui.status_line", readme_text)
-        self.assertIn("实验性 hooks", readme_text)
+        self.assertIn("Hooks 生命周期扩展", readme_text)
         self.assertIn("--with-notify", readme_text)
         self.assertIn("codex-native", codex_doc_text)
         self.assertIn("tui.status_line", codex_doc_text)
-        self.assertIn("codex_hooks = true", codex_doc_text)
+        self.assertIn("hooks = true", codex_doc_text)
         self.assertIn("notify =", codex_doc_text)
         self.assertIn("git pull --ff-only", codex_doc_text)
         self.assertIn("show_notify_segment", codex_doc_text)

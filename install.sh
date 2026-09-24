@@ -7,7 +7,7 @@
 #   --bar-style <s>   设置进度条样式 (ascii/dots/squares)
 #   --refresh-interval <sec> 设置 Codex 刷新频率（tmux 重绘 + session 缓存 TTL）
 #   --interactive     交互式询问可选配置（Claude 主题/布局 + Codex 刷新频率）
-#   --with-hooks      为 Codex 安装实验性 hooks sidecar
+#   --with-hooks      为 Codex 安装 hooks sidecar
 #   --with-notify     为 Codex 安装 notify bridge
 #   --uninstall       卸载状态栏（建议配合 --target 使用）
 set -euo pipefail
@@ -59,7 +59,10 @@ UNINSTALL=false
 WITH_HOOKS=false
 WITH_NOTIFY=false
 INTERACTIVE=false
-CODEX_NATIVE_STATUS_LINE='["model-with-reasoning", "context-remaining", "current-dir"]'
+CODEX_NATIVE_STATUS_LINE='["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]'
+CODEX_NATIVE_STATUS_LINE_OLD='["model-with-reasoning", "context-remaining", "current-dir"]'
+CODEX_NATIVE_MARKER="$CODEX_DIR/.aicodingstatusline-native-managed"
+CODEX_HOOK_FEATURE_MARKER="$CODEX_DIR/.aicodingstatusline-hooks-managed"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -82,7 +85,7 @@ while [[ $# -gt 0 ]]; do
             printf "  --bar-style <s>   进度条: ascii/dots/squares\n"
             printf "  --refresh-interval <sec> Codex 刷新频率（tmux 重绘 + session 缓存 TTL）\n"
             printf "  --interactive     交互式询问可选配置\n"
-            printf "  --with-hooks      为 Codex 安装实验性 hooks sidecar\n"
+            printf "  --with-hooks      为 Codex 安装 hooks sidecar\n"
             printf "  --with-notify     为 Codex 安装 notify bridge\n"
             printf "  --uninstall       卸载状态栏；建议配合 --target 使用，不带 --target 会全局卸载\n"
             printf "  -h, --help        显示此帮助\n"
@@ -321,6 +324,84 @@ remove_toml_exact_key() {
     mv "$tmp" "$CODEX_CONFIG_FILE"
 }
 
+read_codex_tui_status_line() {
+    [[ -f "$CODEX_CONFIG_FILE" ]] || return 0
+
+    awk '
+        BEGIN { in_tui = 0; capture = 0; value = "" }
+        /^\[tui\][[:space:]]*$/ { in_tui = 1; next }
+        in_tui && /^\[/ { in_tui = 0 }
+        in_tui && !capture && /^[[:space:]]*status_line[[:space:]]*=/ {
+            capture = 1
+            value = $0
+            if ($0 ~ /\]/) { print value; exit }
+            next
+        }
+        in_tui && capture {
+            value = value " " $0
+            if ($0 ~ /\]/) { print value; exit }
+        }
+    ' "$CODEX_CONFIG_FILE"
+}
+
+normalize_toml_array_text() {
+    printf '%s' "$1" | tr -d '[:space:]'
+}
+
+codex_tui_status_line_is_managed() {
+    local current normalized old_normalized new_normalized
+    current=$(read_codex_tui_status_line)
+    [ -n "$current" ] || return 1
+    normalized=$(normalize_toml_array_text "$current")
+    old_normalized=$(normalize_toml_array_text "status_line = $CODEX_NATIVE_STATUS_LINE_OLD")
+    new_normalized=$(normalize_toml_array_text "status_line = $CODEX_NATIVE_STATUS_LINE")
+    [ "$normalized" = "$old_normalized" ] || [ "$normalized" = "$new_normalized" ]
+}
+
+codex_tui_status_line_is_empty() {
+    local current normalized
+    current=$(read_codex_tui_status_line)
+    [ -n "$current" ] || return 1
+    normalized=$(normalize_toml_array_text "$current")
+    [ "$normalized" = "status_line=[]" ]
+}
+
+remove_codex_tui_status_line_array() {
+    [[ -f "$CODEX_CONFIG_FILE" ]] || return 0
+
+    local tmp
+    tmp=$(mktemp)
+    awk '
+        BEGIN { in_tui = 0; skip = 0 }
+        /^\[tui\][[:space:]]*$/ { in_tui = 1; print; next }
+        in_tui && /^\[/ { in_tui = 0; skip = 0 }
+        in_tui && !skip && /^[[:space:]]*status_line[[:space:]]*=/ {
+            skip = 1
+            if ($0 ~ /\]/) { skip = 0 }
+            next
+        }
+        in_tui && skip {
+            if ($0 ~ /\]/) { skip = 0 }
+            next
+        }
+        { print }
+    ' "$CODEX_CONFIG_FILE" > "$tmp"
+    mv "$tmp" "$CODEX_CONFIG_FILE"
+}
+
+toml_section_key_exists() {
+    local section="$1"
+    local key="$2"
+    [[ -f "$CODEX_CONFIG_FILE" ]] || return 1
+    awk -v section="$section" -v key="$key" '
+        BEGIN { in_section = 0; found = 0 }
+        $0 ~ "^\\[" section "\\][[:space:]]*$" { in_section = 1; next }
+        in_section && /^\[/ { in_section = 0 }
+        in_section && $0 ~ "^[[:space:]]*" key "[[:space:]]*=" { found = 1; exit }
+        END { exit(found ? 0 : 1) }
+    ' "$CODEX_CONFIG_FILE"
+}
+
 remove_toml_key() {
     local section="$1"
     local key="$2"
@@ -430,11 +511,36 @@ remove_toml_root_exact_key() {
 }
 
 upsert_codex_tui_status_line() {
-    upsert_toml_key "tui" "status_line" "$CODEX_NATIVE_STATUS_LINE"
+    local current managed=0 color_managed=0
+    current=$(read_codex_tui_status_line)
+    if [ -z "$current" ] || codex_tui_status_line_is_managed || codex_tui_status_line_is_empty; then
+        [ -n "$current" ] && remove_codex_tui_status_line_array
+        upsert_toml_key "tui" "status_line" "$CODEX_NATIVE_STATUS_LINE"
+        managed=1
+    fi
+    if ! toml_section_key_exists "tui" "status_line_use_colors"; then
+        upsert_toml_key "tui" "status_line_use_colors" "true"
+        color_managed=1
+    fi
+    mkdir -p "$CODEX_DIR"
+    printf 'status_line=%s\nstatus_line_use_colors=%s\n' "$managed" "$color_managed" > "$CODEX_NATIVE_MARKER"
 }
 
 remove_codex_tui_status_line() {
-    remove_toml_exact_key "tui" "status_line" "$CODEX_NATIVE_STATUS_LINE"
+    local managed_list=1 managed_colors=0
+    if [[ -f "$CODEX_NATIVE_MARKER" ]]; then
+        managed_list=$(sed -n 's/^status_line=//p' "$CODEX_NATIVE_MARKER" | head -1)
+        managed_colors=$(sed -n 's/^status_line_use_colors=//p' "$CODEX_NATIVE_MARKER" | head -1)
+    fi
+    if [ "$managed_list" = "1" ]; then
+        if codex_tui_status_line_is_managed; then
+            remove_codex_tui_status_line_array
+        fi
+    fi
+    if [ "$managed_colors" = "1" ]; then
+        remove_toml_exact_key "tui" "status_line_use_colors" "true"
+    fi
+    rm -f "$CODEX_NATIVE_MARKER"
 }
 
 upsert_codex_notify_settings() {
@@ -502,7 +608,16 @@ check_codex_hook_deps() {
 }
 
 upsert_codex_hook_feature_flag() {
-    upsert_toml_key "features" "codex_hooks" "true"
+    local managed=0
+    if toml_section_key_exists "features" "hooks"; then
+        :
+    else
+        upsert_toml_key "features" "hooks" "true"
+        managed=1
+    fi
+    remove_toml_exact_key "features" "codex_hooks" "true"
+    mkdir -p "$CODEX_DIR"
+    printf 'hooks=%s\n' "$managed" > "$CODEX_HOOK_FEATURE_MARKER"
 }
 
 upsert_codex_hook_segment_setting() {
@@ -510,8 +625,16 @@ upsert_codex_hook_segment_setting() {
 }
 
 remove_codex_hook_settings() {
+    local managed=1
+    if [[ -f "$CODEX_HOOK_FEATURE_MARKER" ]]; then
+        managed=$(sed -n 's/^hooks=//p' "$CODEX_HOOK_FEATURE_MARKER" | head -1)
+    fi
+    if [ "$managed" = "1" ]; then
+        remove_toml_exact_key "features" "hooks" "true"
+    fi
     remove_toml_exact_key "features" "codex_hooks" "true"
     remove_toml_exact_key "statusline" "show_hook_segment" "true"
+    rm -f "$CODEX_HOOK_FEATURE_MARKER"
 }
 
 upsert_codex_hooks_json() {
@@ -692,13 +815,13 @@ install_codex_hooks() {
     info "更新 $CODEX_HOOKS_FILE"
     upsert_codex_hooks_json
 
-    info "开启 $CODEX_CONFIG_FILE 中的实验性 hooks"
+    info "开启 $CODEX_CONFIG_FILE 中的 hooks"
     upsert_codex_hook_feature_flag
     if [[ "$enable_hook_segment" == "1" ]]; then
         upsert_codex_hook_segment_setting
     fi
 
-    ok "Codex 实验性 hooks sidecar 已安装"
+    ok "Codex hooks sidecar 已安装；如需信任第三方 hook，请在 Codex /hooks 中 review"
 }
 
 install_codex_notify() {

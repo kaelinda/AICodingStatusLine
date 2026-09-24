@@ -1,6 +1,6 @@
 # Codex CLI 状态栏 — 安装与配置
 
-截至 2026-04-02，Codex 已提供原生 `tui.status_line`，还能启用实验性 hooks。本项目提供的是更强的增强层：在 Codex 原生能力之上，用 `tmux` 包装补充多行 bars、`5h` / `weekly`、Git diff、主题和宽度裁剪。
+Codex 当前提供原生 `tui.status_line` footer 和 hooks 生命周期能力。本项目提供的是增强层：在 Codex 原生能力之上，用 `tmux` 包装补充多行 bars、`5h` / `weekly`、Git diff、主题和宽度裁剪。官方参考：[configuration reference](https://developers.openai.com/codex/config-reference)、[hooks](https://developers.openai.com/codex/hooks)。
 
 如果你只需要官方基础 footer，用 `codex-native`；如果你要更丰富的状态 HUD，用 `codex` tmux 增强模式。
 
@@ -27,7 +27,7 @@ Codex session JSONL 文件（`~/.codex/sessions/`）中的 `token_count` 事件�
 |------|----------|----------|
 | 原生 | `./install.sh --target codex-native` | 只想使用 Codex 官方 `tui.status_line` |
 | 增强 | `./install.sh --target codex` | 需要 `5h` / `weekly`、多行 bars、主题、Git diff |
-| 增强 + hooks | `./install.sh --target codex --with-hooks` | 需要增强状态栏，且想把实验性 hooks 的最近 Bash 状态接到状态栏 |
+| 增强 + hooks | `./install.sh --target codex --with-hooks` | 需要增强状态栏，并显式安装 hooks sidecar |
 
 `notify bridge` 是可叠加能力，可以和原生或增强模式一起安装。
 
@@ -42,18 +42,21 @@ Codex session JSONL 文件（`~/.codex/sessions/`）中的 `token_count` 事件�
 
 ```toml
 [tui]
-status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
+status_line = ["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]
+status_line_use_colors = true
 ```
 
-### 实验性 hooks
+安装器默认管理的官方 item 为：`model-with-reasoning`、`current-dir`、`git-branch`、`branch-changes`、`context-remaining`、`five-hour-limit`、`weekly-limit`、`approval-mode`、`fast-mode`、`task-progress`。已有非本项目列表会原样保留；可直接用 `/statusline` 调整官方 footer 顺序。
 
-Codex 官方还有实验性 hooks，可用于 SessionStart / Tool 前后 / Stop 等生命周期脚本，但它们不是 Claude 那种可直接自定义状态栏渲染的 `statusLine.command`。
+### Hooks 生命周期扩展
+
+Codex hooks 可用于 SessionStart、工具调用前后和 Stop 等生命周期脚本，但它们不是 Claude 那种可直接自定义状态栏渲染的 `statusLine.command`。本项目不默认启用 hooks，只有显式传入 `--with-hooks` 才安装 sidecar。
 
 启用示例：
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 本项目可以通过 `--with-hooks` 一键安装 sidecar：
@@ -66,7 +69,7 @@ codex_hooks = true
 
 - 安装 `~/.codex/bin/codex-hook-sidecar`
 - 生成或合并 `~/.codex/hooks.json`
-- 写入 `~/.codex/config.toml` 的 `[features].codex_hooks = true`
+- 写入 `~/.codex/config.toml` 的 `[features].hooks = true`；旧版 `codex_hooks = true` 仅作为兼容迁移键
 - 在 tmux 增强模式下写入 `[statusline].show_hook_segment = true`
 
 当前 sidecar 会把最近一次 hooks 事件写到缓存里，状态栏可显示：
@@ -77,7 +80,7 @@ codex_hooks = true
 - `hook startup`
 - `hook stop`
 
-> 官方当前限制：`PreToolUse` / `PostToolUse` 的 `matcher` 虽然是正则，但运行时目前只会发出 `Bash`。
+> 非托管 hook 是否执行，以 Codex `/hooks` 页面中的 review/trust 状态为准；请先审阅命令与 matcher，再信任它们。sidecar 的 `statusMessage`、超时和 matcher 遵循官方 hook event schema。
 
 ### 原生通知 / notify bridge
 
@@ -143,7 +146,7 @@ cd AICodingStatusLine
 # 只启用 Codex 原生 tui.status_line
 ./install.sh --target codex-native
 
-# 启用 Codex tmux 增强模式，并安装实验性 hooks sidecar
+# 启用 Codex tmux 增强模式，并安装 hooks sidecar
 ./install.sh --target codex --with-hooks
 
 # 给原生或增强模式叠加 notify bridge

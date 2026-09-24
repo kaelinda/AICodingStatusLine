@@ -48,7 +48,7 @@ cd AICodingStatusLine
 ./install.sh                       # Claude Code（默认）
 ./install.sh --target codex        # Codex tmux 增强模式
 ./install.sh --target codex-native # Codex 原生 tui.status_line
-./install.sh --target codex --with-hooks # Codex tmux + 实验性 hooks sidecar
+./install.sh --target codex --with-hooks # Codex tmux + hooks sidecar
 ./install.sh --target codex-native --with-notify # Codex 原生状态栏 + notify bridge
 ./install.sh --target codex --with-hooks --with-notify # Codex tmux + hooks + notify
 ./install.sh --target codex --refresh-interval 3 # 指定 Codex 刷新频率（秒）
@@ -95,13 +95,15 @@ git pull --ff-only
 
 **配置方式：** 在 Claude Code 对话中输入 `/statusline` 交互式管理，或手动编辑 `~/.claude/settings.json` 的 `env` 字段。
 
+脚本优先读取 Claude Code 官方 stdin schema：`workspace.current_dir`、`context_window.used_percentage`、`rate_limits.*.used_percentage/resets_at`、`session_name`、`prompt_cache`、`cost` 与 `pr`；旧版输入仍回退到 `cwd`、token 计算和缓存/API。新 `session,mode,cache,cost,pr` 段落只有在 `CLAUDE_CODE_STATUSLINE_SEGMENTS` 中显式列出时才显示。官方字段缺失或无效时显示占位符，不把不可用误报为 0%。宽度优先使用 `CLAUDE_CODE_STATUSLINE_MAX_WIDTH` 或 Claude 设置的 `COLUMNS`。详见 [Claude Code status line 官方文档](https://code.claude.com/docs/en/statusline)。
+
 > 详细安装步骤、完整配置参考、手动安装（含 Windows）请看 → [docs/claude-code.md](docs/claude-code.md)
 
 ---
 
 ## 🟢 Codex CLI
 
-截至 2026-04-02，Codex 已经提供原生 `tui.status_line`，可配置基础状态栏项；另外还有实验性 hooks 能力。本项目当前为 Codex 提供两种接入方式：
+Codex 当前提供原生 `tui.status_line` footer 和 hooks 生命周期能力。本项目当前为 Codex 提供两种接入方式：
 
 - **原生模式**：写入 `~/.codex/config.toml` 的 `tui.status_line`，使用 Codex 官方 TUI 状态栏
 - **tmux 增强模式**：通过 `codex-tmux` 包装层补充 `5h` / `weekly`、多行 bars、Git diff、主题和宽度裁剪等增强能力
@@ -120,7 +122,8 @@ git pull --ff-only
 
 ```toml
 [tui]
-status_line = ["model-with-reasoning", "context-remaining", "current-dir"]
+status_line = ["model-with-reasoning", "current-dir", "git-branch", "branch-changes", "context-remaining", "five-hour-limit", "weekly-limit", "approval-mode", "fast-mode", "task-progress"]
+status_line_use_colors = true
 ```
 
 更新原生模式：
@@ -192,15 +195,15 @@ show_buddy_segment = true
 
 > 详细安装步骤、完整配置参考、tmux 多行布局说明请看 → [docs/codex-cli.md](docs/codex-cli.md)
 
-### 实验性 hooks
+### Hooks 生命周期扩展
 
-Codex 现在还有实验性 hooks。它们更适合做生命周期脚本、通知、sidecar 状态采集，不是 Claude 那种可直接自定义整条状态栏渲染的 `statusLine.command`。
+Codex hooks 用于 SessionStart、工具调用前后等生命周期脚本，不是 Claude 那种可直接自定义整条状态栏渲染的 `statusLine.command`。本项目的 sidecar 只在显式使用 `--with-hooks` 时安装。
 
 启用方式示例：
 
 ```toml
 [features]
-codex_hooks = true
+hooks = true
 ```
 
 本项目现在支持通过安装脚本一键接入 hooks sidecar：
@@ -213,7 +216,7 @@ codex_hooks = true
 
 - 安装 `~/.codex/bin/codex-hook-sidecar`
 - 生成或合并 `~/.codex/hooks.json`
-- 打开 `~/.codex/config.toml` 中的 `[features].codex_hooks = true`
+- 打开 `~/.codex/config.toml` 中的 `[features].hooks = true`（旧版 `codex_hooks` 仅作迁移兼容）
 - 在 tmux 增强模式下自动开启 `show_hook_segment = true`
 
 接入后，增强状态栏会多一个 `hook` 段落，用来显示最近一次 hooks 状态，例如：
@@ -223,7 +226,7 @@ codex_hooks = true
 - `hook bash fail`
 - `hook startup`
 
-> 官方当前仍有限制：`PreToolUse` / `PostToolUse` 的 matcher 目前只会收到 `Bash`，所以本项目的 sidecar 也只针对 Bash 工具流提供实时状态。
+> 非托管 hook 是否执行，以 Codex `/hooks` 页面中的 review/trust 状态为准；请只信任自己审阅过的脚本。官方参考：[Codex configuration reference](https://developers.openai.com/codex/config-reference)、[Codex hooks](https://developers.openai.com/codex/hooks)。
 
 ### 原生通知 / notify bridge
 

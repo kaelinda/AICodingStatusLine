@@ -1,6 +1,8 @@
 # Claude Code 状态栏 — 安装与配置
 
-通过 Claude Code 原生 `statusLine.command` hook 驱动，从 stdin 接收 JSON 数据，调用 Anthropic API 获取用量信息，渲染为 ANSI 彩色文本。
+通过 Claude Code 原生 `statusLine.command` 驱动，从 stdin 接收官方 JSON session schema，优先使用其中的 context/rate-limit 数据；仅在缺少对应窗口时回退到缓存和 OAuth usage API，渲染为 ANSI 彩色文本。
+
+官方参考：[Customize your status line](https://code.claude.com/docs/en/statusline)。Claude Code 会把 `workspace.current_dir`、`context_window.used_percentage`、`rate_limits.*`、`session_name`、`prompt_cache`、`cost`、`pr` 等字段通过 stdin 传入；`rate_limits.*.resets_at` 和 prompt-cache 时间戳是 Unix epoch 秒。字段可能缺失或为 `null`，脚本会保守降级。
 
 ---
 
@@ -119,6 +121,11 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 | **5h** | 5 小时额度的已用百分比 + 未来重置时间 | `5h 83% 2:00` |
 | **7d** | 7 天额度的已用百分比 + 未来重置时间 | `7d 63% 03/06 08:00` |
 | **extra** | 额外用量积分（启用时才显示） | `extra $12.34/$20.00` |
+| **session** | 官方 `session_name`（需显式启用） | `session:release-review` |
+| **mode** | `fast_mode` / `thinking.enabled` / effort（需显式启用） | `fast` / `think` / `effort:xhigh` |
+| **cache** | `prompt_cache.hit_ratio` 或 warm 状态（需显式启用） | `cache 91%` / `cache warm` |
+| **cost** | 官方 `cost.total_cost_usd`（需显式启用） | `$0.42` |
+| **pr** | 官方 `pr.number` 与可选 review state（需显式启用） | `PR#1234 pending` |
 
 用量百分比按阈值变色：🟢 <50% → 🟡 ≥50% → 🟠 ≥70% → 🔴 ≥90%
 
@@ -132,12 +139,12 @@ Copy-Item statusline.ps1 "$env:USERPROFILE\.claude\statusline.ps1"
 
 | 环境变量 | 默认值 | 说明 |
 |----------|--------|------|
-| `CLAUDE_CODE_STATUSLINE_SEGMENTS` | (全部) | 逗号分隔的段落列表（同时控制显示顺序）：`model,eff,git,ctx,5h,7d,extra`。未设置则显示全部 |
+| `CLAUDE_CODE_STATUSLINE_SEGMENTS` | (核心段落) | 逗号分隔的段落列表（同时控制显示顺序）：核心段落为 `model,eff,git,ctx,5h,7d,extra`；`session,mode,cache,cost,pr` 必须显式列出 |
 | `CLAUDE_CODE_STATUSLINE_LAYOUT` | `bars` | 布局模式：`bars` 或 `compact` |
 | `CLAUDE_CODE_STATUSLINE_BAR_STYLE` | `ascii` | 进度条字符（见 [README 进度条样式](../README.md#-布局与样式)），支持 `custom:X:Y` 自定义 |
 | `CLAUDE_CODE_STATUSLINE_GIT_DISPLAY` | `repo` | Git 段显示方式：`repo` 输出 `repo@branch`，`branch` 输出 `branch:<branch>` |
 | `CLAUDE_CODE_STATUSLINE_THEME` | `default` | 配色主题：`default`、`forest`、`dracula`、`monokai`、`solarized`、`ocean`、`sunset`、`amber`、`rose` |
-| `CLAUDE_CODE_STATUSLINE_MAX_WIDTH` | 终端宽度 | 强制指定宽度预算（正整数） |
+| `CLAUDE_CODE_STATUSLINE_MAX_WIDTH` | 终端宽度 | 强制指定宽度预算（正整数）；未设置时使用 Claude Code 注入的 `COLUMNS`，不依赖 status command 内的 `tput cols` |
 | `CLAUDE_CODE_STATUSLINE_SEVEN_DAY_TIME_FORMAT` | `%m/%d %H:%M` | 自定义 7d 段落末尾的重置时间格式 |
 | `CLAUDE_CODE_STATUSLINE_SHOW_GIT_LINE` | `true` | bars 布局中是否显示独立的 git 信息行（`repo@branch`） |
 | `CLAUDE_CODE_STATUSLINE_CACHE_TTL` | `60` | API 缓存有效期（秒），调高减少请求频率 |
@@ -224,7 +231,7 @@ pwsh -NoProfile -File ./scripts/statusline.ps1 < sample.json
 <details>
 <summary><strong>只显示 <code>5h -</code> / <code>7d -</code>，是什么意思？</strong></summary>
 
-这表示当前没有拿到可用的额度数据，不是“额度为 0”。
+这表示当前没有拿到可用的额度数据，不是“额度为 0”。如果 stdin 已提供另一个有效窗口，该窗口仍会显示，缺失窗口才会单独显示 `-`。
 
 先确认 Claude Code 使用的是 OAuth 认证（Pro/Max 订阅）。API key 模式不支持用量查询。如果认证正常，可能是 API 暂时不可达；状态栏会在 60 秒内自动重试。
 </details>
