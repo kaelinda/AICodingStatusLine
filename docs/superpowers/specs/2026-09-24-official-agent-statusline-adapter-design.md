@@ -21,14 +21,14 @@
 1. 让 Bash 和 PowerShell 的 Claude 状态栏优先消费官方 stdin schema，并对旧版本输入保持兼容。
 2. 在可选段落中暴露高价值的官方字段，同时保持默认输出紧凑、宽度预算和现有主题不变。
 3. 减少不必要的外部请求：官方已提供 rate-limit 数据时不调用 OAuth usage API；没有数据时仍保留现有缓存和回退路径。
-4. 让安装/卸载过程尊重用户已有配置，并写入 Claude Code 官方支持的 status-line 选项。
-5. 让 Codex 原生模式使用官方当前 item 名称和 canonical hooks 配置，同时保留 tmux 增强模式作为补充。
-6. 以测试覆盖 Bash、PowerShell（可用时）、安装迁移和降级场景，并更新用户文档。
+4. 让 Codex 原生模式使用官方当前 item 名称和 canonical hooks 配置，同时保留 tmux 增强模式作为补充。
+5. 以测试覆盖 Bash、PowerShell（可用时）、官方字段优先级和降级场景，并更新用户文档。
 
 ## 非目标
 
 - 不把 Codex tmux 脚本伪装成 Codex 原生 `status_line` command hook。
 - 不重写现有主题系统、tmux 会话管理器或交互式配置器。
+- 不在本分支扩展完整的安装向导/配置迁移功能；只修正会直接影响官方 schema 的托管常量和 feature key。
 - 不强制启用网络请求、OAuth 认证或 Codex hooks；所有外部数据都必须可降级为空/不可用。
 - 不删除用户未由本项目写入的 settings、hooks 或 config 项。
 
@@ -71,18 +71,7 @@
 
 bars 布局仍只渲染 git、概览、5h、7d 四类核心行；新增段落进入概览/compact 的宽度裁剪流程，不改变进度条行数。
 
-### 3. Claude 官方 statusLine 配置合并
-
-`install.sh` 和 `scripts/post-install.sh` 使用 `jq` 对已有 `.statusLine` 做字段级合并：
-
-- 强制更新本项目的 `type=command` 与 `command`。
-- 仅在用户没有明确设置时写入 `padding`（默认 `0`）、`refreshInterval`（默认 `15` 秒）和 `hideVimModeIndicator`（默认 `false`）。
-- 用户已有的其它键和 `env` 项保持不变。
-- 增加可选安装参数/环境变量来覆盖三个官方选项；卸载只删除本项目写入的值，不清空用户自定义值。
-
-`refreshInterval` 只用于让 reset time、cache、cost 等时间性字段在主会话空闲时更新；脚本内 API/cache TTL 仍独立控制，避免每次刷新都发网络请求。
-
-### 4. Codex 原生适配
+### 3. Codex 原生适配
 
 定义一个可审计的官方 item 常量（按重要性排序）：
 
@@ -112,7 +101,7 @@ status_line_use_colors = true
 
 tmux 增强脚本继续从 session JSONL 读取 token/rate-limit，作为多行 bars、主题、Git diff 和 sidecar 状态的补充；文档明确说明两条数据路径。
 
-### 5. Codex hooks canonical key 和信任提示
+### 4. Codex hooks canonical key 和信任提示
 
 `--with-hooks` 写入 `[features].hooks = true`，同时识别旧的 `codex_hooks` 作为兼容别名。卸载时只删除值为 `true` 的本项目写入项，并保留其它 feature 配置。安装输出和文档说明：
 
@@ -120,7 +109,7 @@ tmux 增强脚本继续从 session JSONL 读取 token/rate-limit，作为多行 
 - `~/.codex/hooks.json` 是官方支持的用户级位置。
 - sidecar 的 `statusMessage`、超时和 matcher 遵循官方事件 schema。
 
-### 6. 错误处理和跨平台降级
+### 5. 错误处理和跨平台降级
 
 - jq/PowerShell JSON 解析失败时输出基础模型/目录，不打印 stderr 到状态栏 stdout。
 - 官方字段缺失、null、过期、非法数字统一视为不可用，不显示误导性的 0% 或假 reset 时间。
@@ -130,7 +119,7 @@ tmux 增强脚本继续从 session JSONL 读取 token/rate-limit，作为多行 
 ## 文件边界
 
 - 修改：`scripts/statusline.sh`、`scripts/statusline.ps1`：归一化、段落、rate-limit 优先级和宽度裁剪。
-- 修改：`install.sh`、`scripts/post-install.sh`：配置合并、官方选项、Codex item 和 hooks key。
+- 修改：`install.sh`：Codex 官方 item 常量和 hooks canonical key；不改变 Claude 安装向导的其它行为。
 - 修改：`tests/test_statusline.py`：新增失败测试与回归覆盖。
 - 修改：`README.md`、`docs/claude-code.md`、`docs/codex-cli.md`：官方契约、迁移和兼容说明。
 - 新增：`docs/superpowers/plans/2026-09-24-official-agent-statusline-adapter.md`（实现计划）。
@@ -138,8 +127,7 @@ tmux 增强脚本继续从 session JSONL 读取 token/rate-limit，作为多行 
 ## 验收标准
 
 1. 给定官方 Claude JSON 时，Bash/PowerShell 使用 `workspace.current_dir` 和 stdin `rate_limits`，且不会读取/请求 OAuth usage API。
-2. 给定旧版 Claude JSON 或缺字段时，现有 140 项测试行为保持不变，且能稳定回退到缓存/API/占位符。
+2. 给定旧版 Claude JSON 或缺字段时，现有回归测试行为保持不变，且能稳定回退到缓存/API/占位符。
 3. 新段落只有显式配置才出现，窄宽度下输出不超过预算（去 ANSI 后）。
-4. 安装已有 Claude settings/Codex config/hooks 时，用户自定义键不被覆盖；卸载只移除本项目托管值。
-5. Codex 原生列表只使用官方实现支持的 item 名称，hooks 使用 canonical `features.hooks` 并提示 `/hooks` trust 流程。
-6. 完整 Python 回归测试通过；Bash 冒烟通过；有 `pwsh` 时 PowerShell 对照通过；脚本语法检查无错误。
+4. Codex 原生列表只使用官方实现支持的 item 名称，hooks 使用 canonical `features.hooks` 并提示 `/hooks` trust 流程。
+5. 完整 Python 回归测试通过；Bash 冒烟通过；有 `pwsh` 时 PowerShell 对照通过；脚本语法检查无错误。
