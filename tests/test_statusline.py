@@ -4,6 +4,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -278,6 +279,7 @@ class StatusLineTests(unittest.TestCase):
         extra_env=None,
         layout="compact",
         payload=None,
+        cache_age=None,
     ):
         env = os.environ.copy()
         env["HOME"] = str(self.cache_home)
@@ -308,6 +310,10 @@ class StatusLineTests(unittest.TestCase):
                 pass
         else:
             self._write_usage(usage)
+
+        if cache_age is not None and self.usage_cache.exists():
+            stale = self.usage_cache.stat().st_mtime - cache_age
+            os.utime(self.usage_cache, (stale, stale))
 
         payload = json.loads(json.dumps(payload or SAMPLE_INPUT))
         payload["cwd"] = str(cwd or payload.get("cwd") or self.clean_repo)
@@ -949,6 +955,110 @@ class StatusLineTests(unittest.TestCase):
         self.assertNotIn("cache ", output)
         self.assertNotIn("PR#", output)
         self.assertNotIn("$0.42", output)
+
+    def test_sparse_official_payload_keeps_optional_segments_in_sync(self):
+        payload = {
+            "workspace": {"current_dir": str(self.clean_repo)},
+            "model": {"display_name": "Opus 4.6"},
+            "session_name": "release-review",
+            "fast_mode": True,
+            "thinking": {"enabled": True},
+            "effort": {"level": "high"},
+            "context_window": {"used_percentage": 42},
+            "prompt_cache": {"warm": True, "hit_ratio": 0.91},
+            "cost": {"total_cost_usd": 1.23},
+            "pr": {"number": 42, "review_state": "pending"},
+        }
+
+        output = self._run_shell(
+            usage=False,
+            payload=payload,
+            budget=200,
+            extra_env={"CLAUDE_CODE_STATUSLINE_SEGMENTS": "model,session,mode,cache,cost,pr"},
+        )
+
+        self.assertIn("Opus 4.6", output)
+        self.assertIn("session:release-review", output)
+        self.assertIn("fast", output)
+        self.assertIn("cache 91%", output)
+        self.assertIn("$1.23", output)
+        self.assertIn("PR#42 pending", output)
+        self.assertNotIn("session:true", output)
+        self.assertNotIn("PR#pending", output)
+
+    def test_sparse_official_payload_single_session_segment(self):
+        payload = {
+            "workspace": {"current_dir": str(self.clean_repo)},
+            "model": {"display_name": "Opus 4.6"},
+            "session_name": "release-review",
+            "context_window": {"used_percentage": 42},
+        }
+
+        output = self._run_shell(
+            usage=False,
+            payload=payload,
+            extra_env={"CLAUDE_CODE_STATUSLINE_SEGMENTS": "session"},
+        )
+
+        self.assertEqual("session:release-review", output)
+
+    def test_sparse_official_payload_single_pr_segment(self):
+        payload = {
+            "workspace": {"current_dir": str(self.clean_repo)},
+            "model": {"display_name": "Opus 4.6"},
+            "context_window": {"used_percentage": 42},
+            "pr": {"number": 42, "review_state": "pending"},
+        }
+
+        output = self._run_shell(
+            usage=False,
+            payload=payload,
+            extra_env={"CLAUDE_CODE_STATUSLINE_SEGMENTS": "pr"},
+        )
+
+        self.assertIn("PR#42 pending", output)
+
+    def test_failed_usage_request_does_not_refresh_cache_timestamp(self):
+        fake_bin = Path(self.temp_dir.name) / "fake-bin"
+        fake_bin.mkdir()
+        fake_curl = fake_bin / "curl"
+        fake_curl.write_text("#!/bin/sh\nexit 1\n")
+        fake_curl.chmod(0o755)
+
+        stale_mtime = time.time() - 120
+        output = self._run_shell(
+            usage=SAMPLE_USAGE,
+            budget=200,
+            cache_age=120,
+            extra_env={
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "CLAUDE_CODE_OAUTH_TOKEN": "test-token",
+            },
+        )
+
+        self.assertIn("5h ?", output)
+        self.assertIn("7d ?", output)
+        self.assertAlmostEqual(stale_mtime, self.usage_cache.stat().st_mtime, delta=2)
+
+    def test_expired_usage_cache_is_not_shown_without_refresh(self):
+        fake_bin = Path(self.temp_dir.name) / "fake-bin"
+        fake_bin.mkdir()
+        fake_curl = fake_bin / "curl"
+        fake_curl.write_text("#!/bin/sh\nexit 1\n")
+        fake_curl.chmod(0o755)
+
+        output = self._run_shell(
+            usage=SAMPLE_USAGE,
+            budget=200,
+            cache_age=120,
+            extra_env={
+                "PATH": f"{fake_bin}:{os.environ['PATH']}",
+                "CLAUDE_CODE_OAUTH_TOKEN": "test-token",
+            },
+        )
+
+        self.assertNotIn("5h 83%", output)
+        self.assertNotIn("7d 63%", output)
 
     def test_invalid_official_fields_fall_back_without_fake_zero_usage(self):
         payload = json.loads(json.dumps(OFFICIAL_CLAUDE_INPUT))

@@ -447,8 +447,8 @@ limits_json_is_usable() {
         (.has_limits // false),
         (.primary_reset // 0),
         (.secondary_reset // 0)
-    ] | @tsv' 2>/dev/null) || return 1
-    IFS=$'\t' read -r has_limits primary_reset secondary_reset <<EOF
+    ] | map(if . == null then "" else tostring end) | join("\u001f")' 2>/dev/null) || return 1
+    IFS=$'\037' read -r has_limits primary_reset secondary_reset <<EOF
 $limit_fields
 EOF
     [ "$has_limits" = "true" ] || return 1
@@ -1496,8 +1496,8 @@ if [ -n "$session_json" ]; then
         (.primary_reset // 0),
         (.secondary_pct // 0),
         (.secondary_reset // 0)
-    ] | @tsv' 2>/dev/null)
-    IFS=$'\t' read -r session_event_ts ctx_total ctx_window has_limits five_hour_utilization five_hour_reset_epoch seven_day_utilization seven_day_reset_epoch <<EOF
+    ] | map(if . == null then "" else tostring end) | join("\u001f")' 2>/dev/null)
+    IFS=$'\037' read -r session_event_ts ctx_total ctx_window has_limits five_hour_utilization five_hour_reset_epoch seven_day_utilization seven_day_reset_epoch <<EOF
 $session_fields
 EOF
     [ -n "$ctx_total" ] || ctx_total=0

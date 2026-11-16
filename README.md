@@ -499,7 +499,7 @@ show_buddy_segment = true
 │   └── statusline/          # /statusline Skill
 ├── install.sh               # 手动一键安装脚本
 └── tests/
-    └── test_statusline.py   # 测试套件（103 项）
+    └── test_statusline.py   # 测试套件（163 项）
 ```
 
 ---

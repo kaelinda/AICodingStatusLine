@@ -1019,8 +1019,8 @@ input_fields=$(printf '%s' "$input" | jq -r '[
     (.rate_limits.five_hour.resets_at // ""),
     (.rate_limits.seven_day.used_percentage // ""),
     (.rate_limits.seven_day.resets_at // "")
-] | map(if . == null then "" else tostring end) | @tsv' 2>/dev/null)
-IFS=$'\t' read -r model_name size input_tokens cache_create cache_read cwd project_dir worktree_name session_name fast_mode thinking_enabled native_effort_level cache_warm cache_hit_ratio total_cost_usd pr_number pr_review_state native_context_pct native_five_hour_pct native_five_hour_reset_iso native_seven_day_pct native_seven_day_reset_iso <<EOF
+] | map(if . == null then "" else tostring end) | join("\u001f")' 2>/dev/null)
+IFS=$'\037' read -r model_name size input_tokens cache_create cache_read cwd project_dir worktree_name session_name fast_mode thinking_enabled native_effort_level cache_warm cache_hit_ratio total_cost_usd pr_number pr_review_state native_context_pct native_five_hour_pct native_five_hour_reset_iso native_seven_day_pct native_seven_day_reset_iso <<EOF
 $input_fields
 EOF
 [ -n "$model_name" ] || model_name="Claude"
@@ -1122,13 +1122,12 @@ if [ -f "$cache_file" ]; then
     if [ "$cache_age" -lt "$cache_max_age" ] && [ "$native_rate_limits_available" -eq 0 ]; then
         needs_refresh=false
     fi
-    if [ "$native_five_valid" -eq 0 ] || [ "$native_seven_valid" -eq 0 ]; then
+    if [ "$cache_age" -lt "$cache_max_age" ] && ( [ "$native_five_valid" -eq 0 ] || [ "$native_seven_valid" -eq 0 ] ); then
         usage_data=$(cat "$cache_file" 2>/dev/null)
     fi
 fi
 
 if $needs_refresh; then
-    touch "$cache_file" 2>/dev/null
     token=$(get_oauth_token)
     api_attempt_failed=0
     if [ -n "$token" ] && [ "$token" != "null" ]; then
@@ -1184,8 +1183,8 @@ if [ -n "$usage_data" ] && printf '%s' "$usage_data" | jq -e '.five_hour' >/dev/
         (.extra_usage.is_enabled // false),
         (.extra_usage.used_credits // 0),
         (.extra_usage.monthly_limit // 0)
-    ] | @tsv' 2>/dev/null)
-    IFS=$'\t' read -r five_hour_utilization five_hour_reset_iso seven_day_utilization seven_day_reset_iso extra_enabled extra_used_cents extra_limit_cents <<EOF
+    ] | map(if . == null then "" else tostring end) | join("\u001f")' 2>/dev/null)
+    IFS=$'\037' read -r five_hour_utilization five_hour_reset_iso seven_day_utilization seven_day_reset_iso extra_enabled extra_used_cents extra_limit_cents <<EOF
 $usage_fields
 EOF
     [ -n "$five_hour_utilization" ] || five_hour_utilization=0
